@@ -1,0 +1,160 @@
+{
+  "job_id": "demo-002",
+  "text": "Khansi hai, cough for 5 days, BP 130 by 80, give azithromycin 500 mg once daily 3 days. No penicillin allergy, patient denies chest pain.",
+  "language": "mix",
+  "segments": [
+    {
+      "id": 0,
+      "text": "Khansi hai, cough for 5 days, BP 130 by 80, give azithromycin 500 mg once daily 3 days.",
+      "start": 0.2,
+      "end": 5.96,
+      "lang": "mix",
+      "confidence": 0.9,
+      "words": [
+        {
+          "w": "Khansi",
+          "s": 0.2,
+          "e": 0.52
+        },
+        {
+          "w": "hai,",
+          "s": 0.52,
+          "e": 0.84
+        },
+        {
+          "w": "cough",
+          "s": 0.84,
+          "e": 1.16
+        },
+        {
+          "w": "for",
+          "s": 1.16,
+          "e": 1.48
+        },
+        {
+          "w": "5",
+          "s": 1.48,
+          "e": 1.8
+        },
+        {
+          "w": "days,",
+          "s": 1.8,
+          "e": 2.12
+        },
+        {
+          "w": "BP",
+          "s": 2.12,
+          "e": 2.44
+        },
+        {
+          "w": "130",
+          "s": 2.44,
+          "e": 2.76
+        },
+        {
+          "w": "by",
+          "s": 2.76,
+          "e": 3.08
+        },
+        {
+          "w": "80,",
+          "s": 3.08,
+          "e": 3.4
+        },
+        {
+          "w": "give",
+          "s": 3.4,
+          "e": 3.72
+        },
+        {
+          "w": "azithromycin",
+          "s": 3.72,
+          "e": 4.04
+        },
+        {
+          "w": "500",
+          "s": 4.04,
+          "e": 4.36
+        },
+        {
+          "w": "mg",
+          "s": 4.36,
+          "e": 4.68
+        },
+        {
+          "w": "once",
+          "s": 4.68,
+          "e": 5.0
+        },
+        {
+          "w": "daily",
+          "s": 5.0,
+          "e": 5.32
+        },
+        {
+          "w": "3",
+          "s": 5.32,
+          "e": 5.64
+        },
+        {
+          "w": "days.",
+          "s": 5.64,
+          "e": 5.96
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "text": "No penicillin allergy, patient denies chest pain.",
+      "start": 6.26,
+      "end": 8.5,
+      "lang": "en-IN",
+      "confidence": 0.9,
+      "words": [
+        {
+          "w": "No",
+          "s": 6.26,
+          "e": 6.58
+        },
+        {
+          "w": "penicillin",
+          "s": 6.58,
+          "e": 6.9
+        },
+        {
+          "w": "allergy,",
+          "s": 6.9,
+          "e": 7.22
+        },
+        {
+          "w": "patient",
+          "s": 7.22,
+          "e": 7.54
+        },
+        {
+          "w": "denies",
+          "s": 7.54,
+          "e": 7.86
+        },
+        {
+          "w": "chest",
+          "s": 7.86,
+          "e": 8.18
+        },
+        {
+          "w": "pain.",
+          "s": 8.18,
+          "e": 8.5
+        }
+      ]
+    }
+  ],
+  "normalized_en": "cough hai, cough for 5 days, BP 130/80, give azithromycin 500 mg once daily 3 days. No penicillin allergy, patient denies chest pain.",
+  "normalizations": [
+    {
+      "from": "khansi",
+      "to": "cough"
+    }
+  ],
+  "stt_engine": "mock (forced --model mock)"
+}

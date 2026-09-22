@@ -1,0 +1,106 @@
+{
+  "job_id": "live-luvvoice.com",
+  "drugs": [
+    {
+      "name": "amoxicillin",
+      "dose": 875.0,
+      "unit": "mg",
+      "frequency": "twice a day",
+      "duration": "7 days",
+      "confidence": 0.88,
+      "color": "YELLOW",
+      "source_sentence": "We are starting them on a moxacillin 875 mg twice a day for seven days, along with ibuprofen for 100 mg every 8 hours as needed to help manage the yearache.",
+      "negated": false,
+      "note": "fuzzy moxacillin->amoxicillin (0.90)"
+    },
+    {
+      "name": "ibuprofen",
+      "dose": 100.0,
+      "unit": "mg",
+      "frequency": "every 8 hours",
+      "duration": "",
+      "confidence": 0.96,
+      "color": "GREEN",
+      "source_sentence": "We are starting them on a moxacillin 875 mg twice a day for seven days, along with ibuprofen for 100 mg every 8 hours as needed to help manage the yearache.",
+      "negated": false
+    }
+  ],
+  "symptoms": [
+    {
+      "text": "pain",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "Alright, so for this patient, they've been dealing with left-eer pain for the past two days, and they develop to feeling of muffled hearing about 24 hours ago.",
+      "negated": false
+    },
+    {
+      "text": "left-eer pain",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "",
+      "negated": false
+    }
+  ],
+  "vitals": [
+    {
+      "text": "blood pressure is sitting at 122 of 78",
+      "confidence": 0.87,
+      "color": "YELLOW",
+      "source_sentence": "Looking at their vitals, their blood pressure is sitting at 122 of 78."
+    },
+    {
+      "text": "100.4 degrees Fahrenheit",
+      "confidence": 0.87,
+      "color": "YELLOW",
+      "source_sentence": "Their temp is currently 100.4 degrees Fahrenheit, and their oxygen saturation is looking good at 99% on room air."
+    },
+    {
+      "text": "99% on room air",
+      "confidence": 0.87,
+      "color": "YELLOW",
+      "source_sentence": "Their temp is currently 100.4 degrees Fahrenheit, and their oxygen saturation is looking good at 99% on room air."
+    },
+    {
+      "text": "100.4",
+      "confidence": 0.87,
+      "color": "YELLOW",
+      "source_sentence": ""
+    },
+    {
+      "text": "99",
+      "confidence": 0.87,
+      "color": "YELLOW",
+      "source_sentence": ""
+    }
+  ],
+  "allergies": [
+    {
+      "text": "moxacillin",
+      "negated": true,
+      "confidence": 0.82,
+      "color": "YELLOW",
+      "source_sentence": "They are reporting any fluid drainage from the error-dysiness, and they don't have any known allergy to a moxacillin.",
+      "note": "NEGATED candidate - verify drug name"
+    }
+  ],
+  "negations": [
+    {
+      "span": "They are reporting any fluid drainage from the error-dysines",
+      "negated": true
+    }
+  ],
+  "diagnosis": {
+    "text": "is a cutotitis media for the treatment plan",
+    "icd10": "",
+    "confidence": 0.85,
+    "color": "YELLOW",
+    "source_sentence": "diagnosis is a cutotitis media for the treatment plan"
+  },
+  "followup": {
+    "text": "come back to the outpatient department in one week for a follow-up review",
+    "confidence": 0.88,
+    "color": "YELLOW",
+    "source_sentence": "come back to the outpatient department in one week for a follow-up review"
+  },
+  "llm_engine": "regex+llm-primary:llama3.2:3b"
+}

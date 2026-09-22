@@ -1,0 +1,160 @@
+{
+  "job_id": "luvvoice-001",
+  "text": "Khansi hai, cough for 5 days, BPA 130 by AC, give asitromaisin 500 mg once daily 3 days. No penicillin allergy, patient denies chest pain.",
+  "language": "mix",
+  "segments": [
+    {
+      "id": 0,
+      "text": "Khansi hai, cough for 5 days, BPA 130 by AC, give asitromaisin 500 mg once daily 3 days.",
+      "start": 0.0,
+      "end": 9.34,
+      "lang": "mix",
+      "confidence": 1.3,
+      "words": [
+        {
+          "w": " Khansi",
+          "s": 0.0,
+          "e": 0.8
+        },
+        {
+          "w": " hai,",
+          "s": 0.8,
+          "e": 0.98
+        },
+        {
+          "w": " cough",
+          "s": 1.3,
+          "e": 1.46
+        },
+        {
+          "w": " for",
+          "s": 1.46,
+          "e": 1.72
+        },
+        {
+          "w": " 5",
+          "s": 1.72,
+          "e": 2.08
+        },
+        {
+          "w": " days,",
+          "s": 2.08,
+          "e": 2.38
+        },
+        {
+          "w": " BPA",
+          "s": 2.96,
+          "e": 3.46
+        },
+        {
+          "w": " 130",
+          "s": 3.46,
+          "e": 4.02
+        },
+        {
+          "w": " by",
+          "s": 4.02,
+          "e": 4.52
+        },
+        {
+          "w": " AC,",
+          "s": 4.52,
+          "e": 4.92
+        },
+        {
+          "w": " give",
+          "s": 5.5,
+          "e": 5.5
+        },
+        {
+          "w": " asitromaisin",
+          "s": 5.5,
+          "e": 6.52
+        },
+        {
+          "w": " 500",
+          "s": 6.52,
+          "e": 7.1
+        },
+        {
+          "w": " mg",
+          "s": 7.1,
+          "e": 7.66
+        },
+        {
+          "w": " once",
+          "s": 7.66,
+          "e": 8.16
+        },
+        {
+          "w": " daily",
+          "s": 8.16,
+          "e": 8.46
+        },
+        {
+          "w": " 3",
+          "s": 8.46,
+          "e": 8.88
+        },
+        {
+          "w": " days.",
+          "s": 8.88,
+          "e": 9.34
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "text": "No penicillin allergy, patient denies chest pain.",
+      "start": 10.5,
+      "end": 13.86,
+      "lang": "en-IN",
+      "confidence": 1.3,
+      "words": [
+        {
+          "w": " No",
+          "s": 10.5,
+          "e": 10.68
+        },
+        {
+          "w": " penicillin",
+          "s": 10.68,
+          "e": 11.42
+        },
+        {
+          "w": " allergy,",
+          "s": 11.42,
+          "e": 11.78
+        },
+        {
+          "w": " patient",
+          "s": 12.34,
+          "e": 12.66
+        },
+        {
+          "w": " denies",
+          "s": 12.66,
+          "e": 13.2
+        },
+        {
+          "w": " chest",
+          "s": 13.2,
+          "e": 13.5
+        },
+        {
+          "w": " pain.",
+          "s": 13.5,
+          "e": 13.86
+        }
+      ]
+    }
+  ],
+  "normalized_en": "cough hai, cough for 5 days, BPA 130 by AC, give asitromaisin 500 mg once daily 3 days. No penicillin allergy, patient denies chest pain.",
+  "normalizations": [
+    {
+      "from": "khansi",
+      "to": "cough"
+    }
+  ],
+  "stt_engine": "faster-whisper:base-cpu-int8"
+}

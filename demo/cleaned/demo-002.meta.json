@@ -1,0 +1,14 @@
+{
+  "input": {
+    "size": 256044,
+    "duration": 8.0
+  },
+  "sample_rate": 16000,
+  "channels": 1,
+  "duration_s": 8.0,
+  "vad_ratio": 0.752,
+  "snr_before_db": 45.3,
+  "snr_after_db": 51.3,
+  "denoise": "noisereduce",
+  "diarization": "off (default per report)"
+}

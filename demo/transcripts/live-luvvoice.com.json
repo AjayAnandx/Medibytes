@@ -1,0 +1,805 @@
+{
+  "job_id": "live-luvvoice.com",
+  "text": "Alright, so for this patient, they've been dealing with left-eer pain for the past two days, and they develop to feeling of muffled hearing about 24 hours ago. They are reporting any fluid drainage from the error-dysiness, and they don't have any known allergy to a moxacillin. Looking at their vitals, their blood pressure is sitting at 122 of 78. Their temp is currently 100.4 degrees Fahrenheit, and their oxygen saturation is looking good at 99% on room air. Based on that, the clinical diagnosis is a cutotitis media for the treatment plan. We are starting them on a moxacillin, 875 mg twice a day for seven days, along with ibuprofen, for 100 mg every 8 hours as needed to help manage the yearache. We'll have them come back to the outpatient department in one week for a follow-up review.",
+  "language": "en-IN",
+  "segments": [
+    {
+      "id": 0,
+      "text": "Alright, so for this patient, they've been dealing with left-eer pain for the past two days, and they develop to feeling of muffled hearing about 24 hours ago.",
+      "start": 0.0,
+      "end": 9.2,
+      "lang": "en-IN",
+      "confidence": 0.97,
+      "words": [
+        {
+          "w": " Alright,",
+          "s": 0.0,
+          "e": 0.7
+        },
+        {
+          "w": " so",
+          "s": 0.98,
+          "e": 1.14
+        },
+        {
+          "w": " for",
+          "s": 1.14,
+          "e": 1.28
+        },
+        {
+          "w": " this",
+          "s": 1.28,
+          "e": 1.5
+        },
+        {
+          "w": " patient,",
+          "s": 1.5,
+          "e": 1.96
+        },
+        {
+          "w": " they've",
+          "s": 2.3,
+          "e": 2.54
+        },
+        {
+          "w": " been",
+          "s": 2.54,
+          "e": 2.64
+        },
+        {
+          "w": " dealing",
+          "s": 2.64,
+          "e": 2.92
+        },
+        {
+          "w": " with",
+          "s": 2.92,
+          "e": 3.22
+        },
+        {
+          "w": " left",
+          "s": 3.22,
+          "e": 3.44
+        },
+        {
+          "w": "-eer",
+          "s": 3.44,
+          "e": 3.62
+        },
+        {
+          "w": " pain",
+          "s": 3.62,
+          "e": 3.94
+        },
+        {
+          "w": " for",
+          "s": 3.94,
+          "e": 4.12
+        },
+        {
+          "w": " the",
+          "s": 4.12,
+          "e": 4.26
+        },
+        {
+          "w": " past",
+          "s": 4.26,
+          "e": 4.56
+        },
+        {
+          "w": " two",
+          "s": 4.56,
+          "e": 4.78
+        },
+        {
+          "w": " days,",
+          "s": 4.78,
+          "e": 5.22
+        },
+        {
+          "w": " and",
+          "s": 5.46,
+          "e": 5.66
+        },
+        {
+          "w": " they",
+          "s": 5.66,
+          "e": 5.76
+        },
+        {
+          "w": " develop",
+          "s": 5.76,
+          "e": 6.12
+        },
+        {
+          "w": " to",
+          "s": 6.12,
+          "e": 6.34
+        },
+        {
+          "w": " feeling",
+          "s": 6.34,
+          "e": 6.6
+        },
+        {
+          "w": " of",
+          "s": 6.6,
+          "e": 6.86
+        },
+        {
+          "w": " muffled",
+          "s": 6.86,
+          "e": 7.18
+        },
+        {
+          "w": " hearing",
+          "s": 7.18,
+          "e": 7.46
+        },
+        {
+          "w": " about",
+          "s": 7.46,
+          "e": 7.8
+        },
+        {
+          "w": " 24",
+          "s": 7.8,
+          "e": 8.28
+        },
+        {
+          "w": " hours",
+          "s": 8.28,
+          "e": 8.7
+        },
+        {
+          "w": " ago.",
+          "s": 8.7,
+          "e": 9.2
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "text": "They are reporting any fluid drainage from the error-dysiness, and they don't have any known allergy to a moxacillin.",
+      "start": 10.02,
+      "end": 15.84,
+      "lang": "en-IN",
+      "confidence": 0.97,
+      "words": [
+        {
+          "w": " They",
+          "s": 10.02,
+          "e": 10.16
+        },
+        {
+          "w": " are",
+          "s": 10.16,
+          "e": 10.3
+        },
+        {
+          "w": " reporting",
+          "s": 10.3,
+          "e": 10.74
+        },
+        {
+          "w": " any",
+          "s": 10.74,
+          "e": 11.2
+        },
+        {
+          "w": " fluid",
+          "s": 11.2,
+          "e": 11.48
+        },
+        {
+          "w": " drainage",
+          "s": 11.48,
+          "e": 11.84
+        },
+        {
+          "w": " from",
+          "s": 11.84,
+          "e": 12.1
+        },
+        {
+          "w": " the",
+          "s": 12.1,
+          "e": 12.3
+        },
+        {
+          "w": " error",
+          "s": 12.3,
+          "e": 12.5
+        },
+        {
+          "w": "-dysiness,",
+          "s": 12.5,
+          "e": 13.12
+        },
+        {
+          "w": " and",
+          "s": 13.34,
+          "e": 13.5
+        },
+        {
+          "w": " they",
+          "s": 13.5,
+          "e": 13.6
+        },
+        {
+          "w": " don't",
+          "s": 13.6,
+          "e": 13.78
+        },
+        {
+          "w": " have",
+          "s": 13.78,
+          "e": 14.02
+        },
+        {
+          "w": " any",
+          "s": 14.02,
+          "e": 14.22
+        },
+        {
+          "w": " known",
+          "s": 14.22,
+          "e": 14.5
+        },
+        {
+          "w": " allergy",
+          "s": 14.5,
+          "e": 14.8
+        },
+        {
+          "w": " to",
+          "s": 14.8,
+          "e": 15.1
+        },
+        {
+          "w": " a",
+          "s": 15.1,
+          "e": 15.24
+        },
+        {
+          "w": " moxacillin.",
+          "s": 15.24,
+          "e": 15.84
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "text": "Looking at their vitals, their blood pressure is sitting at 122 of 78.",
+      "start": 16.84,
+      "end": 21.58,
+      "lang": "en-IN",
+      "confidence": 0.97,
+      "words": [
+        {
+          "w": " Looking",
+          "s": 16.84,
+          "e": 17.06
+        },
+        {
+          "w": " at",
+          "s": 17.06,
+          "e": 17.28
+        },
+        {
+          "w": " their",
+          "s": 17.28,
+          "e": 17.44
+        },
+        {
+          "w": " vitals,",
+          "s": 17.44,
+          "e": 17.9
+        },
+        {
+          "w": " their",
+          "s": 18.12,
+          "e": 18.34
+        },
+        {
+          "w": " blood",
+          "s": 18.34,
+          "e": 18.6
+        },
+        {
+          "w": " pressure",
+          "s": 18.6,
+          "e": 18.94
+        },
+        {
+          "w": " is",
+          "s": 18.94,
+          "e": 19.18
+        },
+        {
+          "w": " sitting",
+          "s": 19.18,
+          "e": 19.46
+        },
+        {
+          "w": " at",
+          "s": 19.46,
+          "e": 19.74
+        },
+        {
+          "w": " 122",
+          "s": 19.74,
+          "e": 20.8
+        },
+        {
+          "w": " of",
+          "s": 20.8,
+          "e": 21.06
+        },
+        {
+          "w": " 78.",
+          "s": 21.06,
+          "e": 21.58
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "text": "Their temp is currently 100.4 degrees Fahrenheit, and their oxygen saturation is looking good at 99% on room air.",
+      "start": 22.34,
+      "end": 30.42,
+      "lang": "en-IN",
+      "confidence": 0.88,
+      "words": [
+        {
+          "w": " Their",
+          "s": 22.34,
+          "e": 22.9
+        },
+        {
+          "w": " temp",
+          "s": 22.9,
+          "e": 23.22
+        },
+        {
+          "w": " is",
+          "s": 23.22,
+          "e": 23.42
+        },
+        {
+          "w": " currently",
+          "s": 23.42,
+          "e": 23.78
+        },
+        {
+          "w": " 100",
+          "s": 23.78,
+          "e": 24.22
+        },
+        {
+          "w": ".4",
+          "s": 24.22,
+          "e": 24.94
+        },
+        {
+          "w": " degrees",
+          "s": 24.94,
+          "e": 25.3
+        },
+        {
+          "w": " Fahrenheit,",
+          "s": 25.3,
+          "e": 25.9
+        },
+        {
+          "w": " and",
+          "s": 26.2,
+          "e": 26.4
+        },
+        {
+          "w": " their",
+          "s": 26.4,
+          "e": 26.64
+        },
+        {
+          "w": " oxygen",
+          "s": 26.64,
+          "e": 26.88
+        },
+        {
+          "w": " saturation",
+          "s": 26.88,
+          "e": 27.52
+        },
+        {
+          "w": " is",
+          "s": 27.52,
+          "e": 27.9
+        },
+        {
+          "w": " looking",
+          "s": 27.9,
+          "e": 28.18
+        },
+        {
+          "w": " good",
+          "s": 28.18,
+          "e": 28.46
+        },
+        {
+          "w": " at",
+          "s": 28.46,
+          "e": 28.68
+        },
+        {
+          "w": " 99",
+          "s": 28.68,
+          "e": 29.14
+        },
+        {
+          "w": "%",
+          "s": 29.14,
+          "e": 29.6
+        },
+        {
+          "w": " on",
+          "s": 29.6,
+          "e": 29.82
+        },
+        {
+          "w": " room",
+          "s": 29.82,
+          "e": 30.0
+        },
+        {
+          "w": " air.",
+          "s": 30.0,
+          "e": 30.42
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "text": "Based on that, the clinical diagnosis is a cutotitis media for the treatment plan.",
+      "start": 31.94,
+      "end": 36.44,
+      "lang": "en-IN",
+      "confidence": 0.88,
+      "words": [
+        {
+          "w": " Based",
+          "s": 31.94,
+          "e": 32.0
+        },
+        {
+          "w": " on",
+          "s": 32.0,
+          "e": 32.22
+        },
+        {
+          "w": " that,",
+          "s": 32.22,
+          "e": 32.46
+        },
+        {
+          "w": " the",
+          "s": 32.7,
+          "e": 32.82
+        },
+        {
+          "w": " clinical",
+          "s": 32.82,
+          "e": 33.08
+        },
+        {
+          "w": " diagnosis",
+          "s": 33.08,
+          "e": 33.76
+        },
+        {
+          "w": " is",
+          "s": 33.76,
+          "e": 34.16
+        },
+        {
+          "w": " a",
+          "s": 34.16,
+          "e": 34.32
+        },
+        {
+          "w": " cutotitis",
+          "s": 34.32,
+          "e": 34.88
+        },
+        {
+          "w": " media",
+          "s": 34.88,
+          "e": 35.22
+        },
+        {
+          "w": " for",
+          "s": 35.22,
+          "e": 35.46
+        },
+        {
+          "w": " the",
+          "s": 35.46,
+          "e": 35.6
+        },
+        {
+          "w": " treatment",
+          "s": 35.6,
+          "e": 35.86
+        },
+        {
+          "w": " plan.",
+          "s": 35.86,
+          "e": 36.44
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "text": "We are starting them on a moxacillin, 875 mg twice a day for seven days, along with ibuprofen, for 100 mg every 8 hours as needed to help manage the yearache.",
+      "start": 37.38,
+      "end": 48.36,
+      "lang": "en-IN",
+      "confidence": 0.88,
+      "words": [
+        {
+          "w": " We",
+          "s": 37.38,
+          "e": 37.42
+        },
+        {
+          "w": " are",
+          "s": 37.42,
+          "e": 37.62
+        },
+        {
+          "w": " starting",
+          "s": 37.62,
+          "e": 37.88
+        },
+        {
+          "w": " them",
+          "s": 37.88,
+          "e": 38.2
+        },
+        {
+          "w": " on",
+          "s": 38.2,
+          "e": 38.3
+        },
+        {
+          "w": " a",
+          "s": 38.3,
+          "e": 38.5
+        },
+        {
+          "w": " moxacillin,",
+          "s": 38.5,
+          "e": 39.08
+        },
+        {
+          "w": " 875",
+          "s": 39.44,
+          "e": 40.56
+        },
+        {
+          "w": " mg",
+          "s": 40.56,
+          "e": 41.06
+        },
+        {
+          "w": " twice",
+          "s": 41.06,
+          "e": 41.42
+        },
+        {
+          "w": " a",
+          "s": 41.42,
+          "e": 41.6
+        },
+        {
+          "w": " day",
+          "s": 41.6,
+          "e": 41.82
+        },
+        {
+          "w": " for",
+          "s": 41.82,
+          "e": 42.04
+        },
+        {
+          "w": " seven",
+          "s": 42.04,
+          "e": 42.34
+        },
+        {
+          "w": " days,",
+          "s": 42.34,
+          "e": 42.76
+        },
+        {
+          "w": " along",
+          "s": 43.06,
+          "e": 43.26
+        },
+        {
+          "w": " with",
+          "s": 43.26,
+          "e": 43.52
+        },
+        {
+          "w": " ibuprofen,",
+          "s": 43.52,
+          "e": 44.26
+        },
+        {
+          "w": " for",
+          "s": 44.58,
+          "e": 44.7
+        },
+        {
+          "w": " 100",
+          "s": 44.7,
+          "e": 44.96
+        },
+        {
+          "w": " mg",
+          "s": 44.96,
+          "e": 45.54
+        },
+        {
+          "w": " every",
+          "s": 45.54,
+          "e": 45.96
+        },
+        {
+          "w": " 8",
+          "s": 45.96,
+          "e": 46.24
+        },
+        {
+          "w": " hours",
+          "s": 46.24,
+          "e": 46.52
+        },
+        {
+          "w": " as",
+          "s": 46.52,
+          "e": 46.8
+        },
+        {
+          "w": " needed",
+          "s": 46.8,
+          "e": 47.0
+        },
+        {
+          "w": " to",
+          "s": 47.0,
+          "e": 47.2
+        },
+        {
+          "w": " help",
+          "s": 47.2,
+          "e": 47.44
+        },
+        {
+          "w": " manage",
+          "s": 47.44,
+          "e": 47.7
+        },
+        {
+          "w": " the",
+          "s": 47.7,
+          "e": 47.98
+        },
+        {
+          "w": " yearache.",
+          "s": 47.98,
+          "e": 48.36
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "text": "We'll have them come back to the outpatient department in one week for a follow-up review.",
+      "start": 49.08,
+      "end": 53.32,
+      "lang": "en-IN",
+      "confidence": 0.79,
+      "words": [
+        {
+          "w": " We'll",
+          "s": 49.08,
+          "e": 49.54
+        },
+        {
+          "w": " have",
+          "s": 49.54,
+          "e": 49.62
+        },
+        {
+          "w": " them",
+          "s": 49.62,
+          "e": 49.84
+        },
+        {
+          "w": " come",
+          "s": 49.84,
+          "e": 50.06
+        },
+        {
+          "w": " back",
+          "s": 50.06,
+          "e": 50.3
+        },
+        {
+          "w": " to",
+          "s": 50.3,
+          "e": 50.46
+        },
+        {
+          "w": " the",
+          "s": 50.46,
+          "e": 50.6
+        },
+        {
+          "w": " outpatient",
+          "s": 50.6,
+          "e": 51.02
+        },
+        {
+          "w": " department",
+          "s": 51.02,
+          "e": 51.46
+        },
+        {
+          "w": " in",
+          "s": 51.46,
+          "e": 51.78
+        },
+        {
+          "w": " one",
+          "s": 51.78,
+          "e": 51.98
+        },
+        {
+          "w": " week",
+          "s": 51.98,
+          "e": 52.24
+        },
+        {
+          "w": " for",
+          "s": 52.24,
+          "e": 52.48
+        },
+        {
+          "w": " a",
+          "s": 52.48,
+          "e": 52.68
+        },
+        {
+          "w": " follow",
+          "s": 52.68,
+          "e": 52.78
+        },
+        {
+          "w": "-up",
+          "s": 52.78,
+          "e": 53.0
+        },
+        {
+          "w": " review.",
+          "s": 53.0,
+          "e": 53.32
+        }
+      ]
+    }
+  ],
+  "normalized_en": "Alright, so for this patient, they've been dealing with left-eer pain for the past 2 days, and they develop to feeling of muffled hearing about 24 hours ago. They are reporting any fluid drainage from the error-dysiness, and they don't have any known allergy to a moxacillin. Looking at their vitals, their blood pressure is sitting at 122/78. Their temp is currently 100.4 degrees Fahrenheit, and their oxygen saturation is looking good at 99% on room air. Based on that, the clinical diagnosis is a cutotitis media for the treatment plan. We are starting them on a moxacillin, 875 mg twice a day for 7 days, along with ibuprofen, for 100 mg every 8 hours as needed to help manage the yearache. We'll have them come back to the outpatient department in 1 week for a follow-up review.",
+  "normalizations": [],
+  "stt_engine": "faster-whisper:tiny-cpu-int8"
+}

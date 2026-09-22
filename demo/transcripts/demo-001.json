@@ -1,0 +1,142 @@
+{
+  "job_id": "demo-001",
+  "text": "Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak. No allergy.",
+  "language": "mix",
+  "segments": [
+    {
+      "id": 0,
+      "text": "Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak.",
+      "start": 0.2,
+      "end": 5.64,
+      "lang": "mix",
+      "confidence": 0.9,
+      "words": [
+        {
+          "w": "Patient",
+          "s": 0.2,
+          "e": 0.52
+        },
+        {
+          "w": "ko",
+          "s": 0.52,
+          "e": 0.84
+        },
+        {
+          "w": "fever",
+          "s": 0.84,
+          "e": 1.16
+        },
+        {
+          "w": "hai,",
+          "s": 1.16,
+          "e": 1.48
+        },
+        {
+          "w": "bukhar",
+          "s": 1.48,
+          "e": 1.8
+        },
+        {
+          "w": "101",
+          "s": 1.8,
+          "e": 2.12
+        },
+        {
+          "w": "degree,",
+          "s": 2.12,
+          "e": 2.44
+        },
+        {
+          "w": "give",
+          "s": 2.44,
+          "e": 2.76
+        },
+        {
+          "w": "paracetamol",
+          "s": 2.76,
+          "e": 3.08
+        },
+        {
+          "w": "500",
+          "s": 3.08,
+          "e": 3.4
+        },
+        {
+          "w": "mg",
+          "s": 3.4,
+          "e": 3.72
+        },
+        {
+          "w": "BID,",
+          "s": 3.72,
+          "e": 4.04
+        },
+        {
+          "w": "do",
+          "s": 4.04,
+          "e": 4.36
+        },
+        {
+          "w": "time,",
+          "s": 4.36,
+          "e": 4.68
+        },
+        {
+          "w": "3",
+          "s": 4.68,
+          "e": 5.0
+        },
+        {
+          "w": "din",
+          "s": 5.0,
+          "e": 5.32
+        },
+        {
+          "w": "tak.",
+          "s": 5.32,
+          "e": 5.64
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "text": "No allergy.",
+      "start": 5.94,
+      "end": 6.58,
+      "lang": "en-IN",
+      "confidence": 0.9,
+      "words": [
+        {
+          "w": "No",
+          "s": 5.94,
+          "e": 6.26
+        },
+        {
+          "w": "allergy.",
+          "s": 6.26,
+          "e": 6.58
+        }
+      ]
+    }
+  ],
+  "normalized_en": "Patient ko fever hai, fever 101 degree, give paracetamol 500 mg twice daily, twice daily, 3 days. No allergy.",
+  "normalizations": [
+    {
+      "from": "bukhar",
+      "to": "fever"
+    },
+    {
+      "from": "do time",
+      "to": "twice daily"
+    },
+    {
+      "from": "din tak",
+      "to": "days"
+    },
+    {
+      "from": "BID",
+      "to": "twice daily"
+    }
+  ],
+  "stt_engine": "mock (forced --model mock)"
+}

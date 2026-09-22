@@ -1,0 +1,65 @@
+{
+  "job_id": "demo-002",
+  "drugs": [
+    {
+      "name": "azithromycin",
+      "dose": 500.0,
+      "unit": "mg",
+      "frequency": "once daily",
+      "duration": "3 days",
+      "confidence": 0.96,
+      "color": "GREEN",
+      "source_sentence": "Khansi hai, cough for 5 days, BP 130 by 80, give azithromycin 500 mg once daily 3 days.",
+      "negated": false
+    }
+  ],
+  "symptoms": [
+    {
+      "text": "cough",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "Khansi hai, cough for 5 days, BP 130 by 80, give azithromycin 500 mg once daily 3 days.",
+      "negated": false
+    },
+    {
+      "text": "khansi",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "Khansi hai, cough for 5 days, BP 130 by 80, give azithromycin 500 mg once daily 3 days.",
+      "negated": false
+    },
+    {
+      "text": "chest pain",
+      "confidence": 0.91,
+      "color": "GREEN",
+      "source_sentence": "No penicillin allergy, patient denies chest pain.",
+      "negated": true,
+      "note": "DENIED - excluded"
+    }
+  ],
+  "vitals": [
+    {
+      "text": "BP 130 by 80",
+      "confidence": 0.87,
+      "color": "YELLOW",
+      "source_sentence": "Khansi hai, cough for 5 days, BP 130 by 80, give azithromycin 500 mg once daily 3 days."
+    }
+  ],
+  "allergies": [
+    {
+      "text": "penicillin",
+      "negated": true,
+      "confidence": 0.9,
+      "source_sentence": "No penicillin allergy, patient denies chest pain.",
+      "note": "NEGATED - not added to allergy table"
+    }
+  ],
+  "negations": [
+    {
+      "span": "No penicillin allergy, patient denies chest pain.",
+      "negated": true
+    }
+  ],
+  "diagnosis": {},
+  "followup": {}
+}

@@ -1,0 +1,51 @@
+{
+  "job_id": "demo-001",
+  "drugs": [
+    {
+      "name": "paracetamol",
+      "dose": 500.0,
+      "unit": "mg",
+      "frequency": "BID",
+      "duration": "3 din",
+      "confidence": 0.96,
+      "color": "GREEN",
+      "source_sentence": "Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak.",
+      "negated": false
+    }
+  ],
+  "symptoms": [
+    {
+      "text": "fever",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak.",
+      "negated": false
+    },
+    {
+      "text": "bukhar",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak.",
+      "negated": false
+    }
+  ],
+  "vitals": [
+    {
+      "text": "101 degree",
+      "confidence": 0.87,
+      "color": "YELLOW",
+      "source_sentence": "Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak."
+    }
+  ],
+  "allergies": [],
+  "negations": [
+    {
+      "span": "No allergy",
+      "negated": true,
+      "note": "rule stand-in for CAN-BERT"
+    }
+  ],
+  "diagnosis": {},
+  "followup": {},
+  "tidy_engine": "regex-only (ollama failed: JSONDecodeError)"
+}

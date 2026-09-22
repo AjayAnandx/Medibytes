@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+body{font-family:Arial,sans-serif;max-width:800px;margin:20px auto;color:#111}
+.hdr{border-bottom:3px solid #4F46E5;padding-bottom:8px;margin-bottom:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;color:#fff;font-size:12px;margin-left:6px}
+.GREEN{background:#10B981}.YELLOW{background:#F59E0B}.RED{background:#EF4444}.DENIED{background:#9CA3AF}
+table{border-collapse:collapse;width:100%;margin:8px 0}
+th,td{border:1px solid #ccc;padding:6px;text-align:left;font-size:14px}
+.proof{font-size:12px;color:#555;font-style:italic}
+.section{margin:14px 0;padding:10px;border:1px solid #eee;border-radius:6px}
+.footer{margin-top:16px;font-size:12px;color:#888;border-top:1px solid #eee;padding-top:8px}
+</style></head><body>
+<div class="hdr">
+<h2>ER Discharge (DEMO) - {{ job_id }}</h2>
+<div>lang: {{ language }} | template: {{ template_id }}:{{ template_version }} | date: {{ date }}</div>
+</div>
+
+<div class="section"><h3>Chief Complaint
+{% if chief_complaint.missing %}<span class="badge RED">RED MISSING</span>
+{% else %}<span class="badge {{ chief_complaint.color }}">{{ chief_complaint.color }} {{ chief_complaint.confidence }}</span>{% endif %}</h3>
+<div>{{ chief_complaint.text }}</div>
+{% if chief_complaint.proof %}<div class="proof">Heard: "{{ chief_complaint.proof }}" [seg {{ chief_complaint.seg }}]</div>{% endif %}
+</div>
+
+<div class="section"><h3>History of Present Illness</h3><div>{{ hpi }}</div></div>
+
+<div class="section"><h3>Drugs</h3>
+{% if drugs %}
+<table><tr><th>Name</th><th>Dose</th><th>Freq</th><th>Days</th><th>Conf</th><th>Proof</th></tr>
+{% for d in drugs %}<tr>
+<td>{{ d.name }}{% if d.note %}<br><small>{{ d.note }}</small>{% endif %}</td>
+<td>{{ d.dose }} {{ d.unit }}</td><td>{{ d.frequency }}</td><td>{{ d.duration }}</td>
+<td><span class="badge {{ d.color }}">{{ d.color }} {{ d.confidence }}</span></td>
+<td class="proof">{{ d.proof }}</td></tr>{% endfor %}</table>
+{% else %}<div>NIL — no drug heard <span class="badge RED">RED MISSING</span></div>{% endif %}
+</div>
+
+<div class="section"><h3>Vitals</h3>
+{% if vitals %}<div>{{ vitals }}</div>
+{% else %}<div>NIL <span class="badge RED">RED MISSING demo-only</span></div>
+{% if unmapped %}<div class="proof">Heard but not mapped: "{{ unmapped }}" - needs physician parse</div>{% endif %}{% endif %}
+</div>
+
+<div class="section"><h3>Allergies (active)</h3>
+{% if allergies_active %}<div>{{ allergies_active }}</div>
+{% else %}<div>None extracted.</div>{% endif %}
+{% for a in allergies_denied %}<div><span class="badge DENIED">DENIED</span> {{ a.text }} - "{{ a.proof }}" excluded</div>{% endfor %}
+{% for s in symptoms_denied %}<div><span class="badge DENIED">DENIED symptom excluded</span> {{ s.text }} - "{{ s.proof }}"</div>{% endfor %}
+</div>
+
+<div class="section"><h3>Diagnosis (ICD-10)</h3>
+<div>NIL — [PHYSICIAN TO CONFIRM] <span class="badge RED">RED MISSING</span></div>
+<div class="proof">No diagnosis entity in demo extractor.</div></div>
+
+<div class="footer">Demo - not for clinical use. Human verify required in production. No 99% gate.</div>
+</body></html>

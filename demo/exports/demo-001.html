@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+@page{size:A4 portrait;margin:0}
+*{box-sizing:border-box}
+body{margin:0;background:#9CA3AF;font-family:Inter,Arial,"Noto Sans",sans-serif}
+.page{width:210mm;height:297mm;position:relative;overflow:hidden;background:#fff;margin:4mm auto}
+.bg{position:absolute;left:0;top:0;width:210mm;height:297mm;z-index:1}
+.hband{position:absolute;left:0;top:0;width:210mm;height:28mm;background:linear-gradient(135deg,#1E1B4B,#4F46E5);color:#fff;padding:3mm 12mm}
+.hband h1{margin:0;font-size:15pt;letter-spacing:1px}
+.hband .sub{font-size:8pt;opacity:.9;margin-top:1mm}
+.pband{position:absolute;left:12mm;top:30mm;width:186mm;height:10mm;background:#F5F3FF;border:0.3mm solid #E5E7EB;border-radius:2mm;font-size:8pt;color:#4B5563;padding:1.5mm 3mm}
+.card{position:absolute;left:12mm;width:186mm;background:#fff;border:0.3mm solid #E5E7EB;border-radius:2mm}
+.card h4{margin:0;padding:1mm 3mm;font-size:8pt;letter-spacing:1px;color:#4F46E5;border-bottom:0.3mm solid #E5E7EB}
+.card .body{padding:1.5mm 3mm;font-size:9pt;color:#9CA3AF}
+.dtable{position:absolute;left:12mm;top:86mm;width:186mm;border-collapse:collapse;z-index:1}
+.dtable th{background:#4F46E5;color:#fff;font-size:8pt;padding:1mm 2mm;text-align:left}
+.dtable tr:nth-child(even) td{background:#F9FAFB}
+.dtable td{border:0.2mm solid #E5E7EB;height:9mm;font-size:9pt}
+.dtable td.num{text-align:right;font-variant-numeric:tabular-nums}
+.slots{position:absolute;left:0;top:0;width:210mm;height:297mm;z-index:2}
+.slot{position:absolute;overflow:hidden;white-space:nowrap;font-size:9pt;line-height:3.5mm;padding:0 1mm;color:#111;border-left:1mm solid transparent}
+.slot[data-overflow=wrap]{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-overflow:ellipsis}
+.slot[data-overflow=truncate]{text-overflow:ellipsis}
+.slot.blank{border-bottom:0.4mm solid #4F46E5}
+.slot.redbox{border:0.4mm dashed #EF4444;border-radius:1mm}
+.slot.nil-red{color:#991B1B}
+.slot.nil-green{color:#6B7280}
+.slot small{font-size:7pt;color:#6B7280}
+.chip{position:absolute;font-size:6pt;color:#fff;border-radius:2mm;padding:0.3mm 1.5mm;z-index:3}
+.GREEN{background:#10B981}.YELLOW{background:#F59E0B}.RED{background:#EF4444}.DENIED{background:#9CA3AF}
+.gGREEN{border-left-color:#10B981}.gYELLOW{border-left-color:#F59E0B}.gRED{border-left-color:#EF4444}.gDENIED{border-left-color:#9CA3AF}
+.proof{position:absolute;left:12mm;top:270mm;width:186mm;font-size:7pt;font-style:italic;color:#555;z-index:2;line-height:3.2mm;max-height:7mm;overflow:hidden}
+.footer{position:absolute;left:12mm;top:283mm;width:186mm;font-size:7pt;color:#888;border-top:0.3mm solid #E5E7EB;padding-top:1mm;z-index:2}
+
+@media print {
+  @page { size: A4; margin: 0 }
+  body { background: #fff }
+  .page { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact }
+}
+</style></head><body>
+<div class="page">
+<div class="bg">
+<div class="hband"><h1>CITY CARE HOSPITAL — ER DISCHARGE</h1>
+<div class="sub">demo-001 | lang mix | er_discharge:0.2.0-premium | 2026-09-22 | DEMO — verify before clinical use</div></div>
+<div class="pband">Patient: ________________ &nbsp;&nbsp; Age/Sex: ______ &nbsp;&nbsp; Visit ID: demo-001 &nbsp;&nbsp; Physician: ________________</div>
+<div class="card" style="top:42mm;height:16mm"><h4>CHIEF COMPLAINT</h4><div class="body"></div></div>
+<div class="card" style="top:60mm;height:24mm"><h4>HISTORY OF PRESENT ILLNESS</h4><div class="body">Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak. No allergy.</div></div>
+<table class="dtable"><tr><th style="width:52mm">Medicine</th><th style="width:22mm;text-align:right">Dose</th><th style="width:14mm">Unit</th><th style="width:38mm">Frequency</th><th style="width:25mm">Duration</th><th>Conf</th></tr></table>
+<div class="card" style="top:132mm;height:14mm"><h4>VITALS</h4><div class="body"></div></div>
+<div class="card" style="top:148mm;height:12mm"><h4>ALLERGIES</h4><div class="body"></div></div>
+<div class="card" style="top:162mm;height:16mm"><h4>DIAGNOSIS (ICD-10)</h4><div class="body">[PHYSICIAN TO CONFIRM]</div></div>
+<div class="card" style="top:250mm;height:16mm"><h4>SIGNATURE</h4><div class="body">Physician sign ________________ &nbsp;&nbsp;&nbsp;&nbsp; Date ______</div></div>
+</div>
+<div class="slots">
+<div class="slot gYELLOW blank " data-overflow="wrap" style="left:30mm;top:48mm;width:150mm;height:8mm;text-align:left;" title="YELLOW 0.9">fever</div>
+
+<div class="slot gYELLOW " data-overflow="truncate" style="left:36.0mm;top:66mm;width:40mm;height:5mm;text-align:left;" title="YELLOW 0.9">fever</div>
+
+<div class="slot gGREEN " data-overflow="truncate" style="left:102.6mm;top:66mm;width:40mm;height:5mm;text-align:left;" title="GREEN 0.96">paracetamol</div>
+
+<div class="slot gGREEN " data-overflow="wrap" style="left:16mm;top:95mm;width:52mm;height:8mm;text-align:left;" title="GREEN 0.96">paracetamol</div>
+
+<div class="slot gGREEN " data-overflow="shrink" style="left:70mm;top:95mm;width:22mm;height:8mm;text-align:right;" title="GREEN 0.96">500</div>
+
+<div class="slot gGREEN " data-overflow="truncate" style="left:93mm;top:95mm;width:14mm;height:8mm;text-align:left;" title="GREEN 0.96">mg</div>
+
+<div class="slot gGREEN " data-overflow="truncate" style="left:108mm;top:95mm;width:38mm;height:8mm;text-align:left;" title="GREEN 0.96">BID</div>
+
+<div class="slot gGREEN " data-overflow="truncate" style="left:147mm;top:95mm;width:25mm;height:8mm;text-align:left;" title="GREEN 0.96">3 din</div>
+<span class="chip GREEN" style="left:174mm;top:95mm">GREEN 0.96</span>
+<div class="slot gRED redbox nil-red " data-overflow="truncate" style="left:30mm;top:136mm;width:16mm;height:7mm;text-align:right;" title="RED ">NIL</div>
+
+<div class="slot gRED redbox nil-red " data-overflow="truncate" style="left:48mm;top:136mm;width:16mm;height:7mm;text-align:right;" title="RED ">NIL</div>
+
+<div class="slot gYELLOW " data-overflow="truncate" style="left:80mm;top:136mm;width:30mm;height:7mm;text-align:left;" title="YELLOW ">101 degree</div>
+
+<div class="slot gRED redbox nil-red " data-overflow="truncate" style="left:120mm;top:136mm;width:30mm;height:7mm;text-align:left;" title="RED ">NIL</div>
+
+<div class="slot gGREEN nil-green " data-overflow="truncate" style="left:30mm;top:150mm;width:150mm;height:7mm;text-align:left;" title="GREEN ">NIL — none extracted</div>
+
+<div class="slot gRED redbox nil-red " data-overflow="truncate" style="left:30mm;top:167mm;width:100mm;height:7mm;text-align:left;" title="RED ">NIL — [DR CONFIRM]</div>
+
+<div class="slot gRED redbox nil-red " data-overflow="truncate" style="left:132mm;top:164mm;width:54mm;height:9mm;text-align:right;" title="RED ">NIL</div>
+
+<div class="slot gGREEN " data-overflow="truncate" style="left:150mm;top:252mm;width:36mm;height:7mm;text-align:right;" title="GREEN ">2026-09-22</div>
+
+<div class="slot gGREEN blank " data-overflow="truncate" style="left:22mm;top:252mm;width:80mm;height:7mm;text-align:left;" title="GREEN ">________________</div>
+
+
+
+</div>
+<div class="proof">Heard: "Patient ko fever hai, bukhar 101 degree, give paracetamol 500 mg BID, do time, 3 din tak." [seg 0 0.2-5.64s]<br></div>
+<div class="footer">Demo — not for clinical use. Human verify required. No 99% gate. &nbsp;&nbsp; NIL RED = missing, fix before verify | NIL GREEN = none heard, ok. &nbsp;&nbsp; Page 1/1 (single A4 strictly)</div>
+</div>
+</body></html>

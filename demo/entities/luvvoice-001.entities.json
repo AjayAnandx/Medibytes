@@ -1,0 +1,58 @@
+{
+  "job_id": "luvvoice-001",
+  "drugs": [
+    {
+      "name": "azithromycin",
+      "dose": 500.0,
+      "unit": "mg",
+      "frequency": "once daily",
+      "duration": "3 days",
+      "confidence": 0.96,
+      "color": "GREEN",
+      "source_sentence": "Khansi hai, cough for 5 days, BPA 130 by AC, give asitromaisin 500 mg once daily 3 days.",
+      "negated": false
+    }
+  ],
+  "symptoms": [
+    {
+      "text": "cough",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "Khansi hai, cough for 5 days, BPA 130 by AC, give asitromaisin 500 mg once daily 3 days.",
+      "negated": false
+    },
+    {
+      "text": "khansi",
+      "confidence": 0.9,
+      "color": "YELLOW",
+      "source_sentence": "Khansi hai, cough for 5 days, BPA 130 by AC, give asitromaisin 500 mg once daily 3 days.",
+      "negated": false
+    },
+    {
+      "text": "chest pain",
+      "confidence": 0.91,
+      "color": "GREEN",
+      "source_sentence": "No penicillin allergy, patient denies chest pain.",
+      "negated": true,
+      "note": "DENIED - excluded"
+    }
+  ],
+  "vitals": [],
+  "allergies": [
+    {
+      "text": "penicillin",
+      "negated": true,
+      "confidence": 0.9,
+      "source_sentence": "No penicillin allergy, patient denies chest pain.",
+      "note": "NEGATED - not added to allergy table"
+    }
+  ],
+  "negations": [
+    {
+      "span": "No penicillin allergy, patient denies chest pain.",
+      "negated": true
+    }
+  ],
+  "diagnosis": {},
+  "followup": {}
+}

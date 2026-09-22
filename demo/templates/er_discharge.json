@@ -1,0 +1,15 @@
+{
+  "id": "er_discharge",
+  "version": "0.2.0-premium",
+  "layout": "er_discharge.premium.html.j2",
+  "coords": "er_discharge.coords.json",
+  "page": "A4 single strictly",
+  "fields": [
+    {"key": "chief_complaint", "type": "text", "required": true, "source_entities": ["symptom"]},
+    {"key": "history_present_illness", "type": "text", "required": false, "source_entities": ["symptom", "transcript"]},
+    {"key": "drugs", "type": "table", "columns": ["name", "dose", "unit", "frequency", "duration", "confidence", "proof"], "source_entities": ["drug"]},
+    {"key": "vitals", "type": "text", "required": false, "source_entities": ["vitals"]},
+    {"key": "allergies", "type": "text", "required": false, "source_entities": ["allergy"]},
+    {"key": "diagnosis", "type": "coded", "system": "icd-10", "required": true, "demo_mode": "placeholder-only"}
+  ]
+}

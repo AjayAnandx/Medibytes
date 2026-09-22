@@ -1,0 +1,30 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Streamlit / editors
+.streamlit/secrets.toml
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Local temp uploads (persisted live runs are demo data, keep them by default)
+# Uncomment to exclude regenerated pipeline outputs:
+# demo/cleaned/
+# demo/transcripts/
+# demo/entities/
+# demo/exports/

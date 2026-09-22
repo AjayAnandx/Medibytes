@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "er_discharge entities (demo)",
+  "type": "object",
+  "required": ["drugs", "symptoms", "vitals", "allergies"],
+  "properties": {
+    "drugs": {"type": "array", "items": {"type": "object", "required": ["name"],
+      "properties": {"name": {"type": "string"}, "dose": {"type": ["number", "null"]},
+        "unit": {"type": ["string", "null"], "enum": ["mg", "mcg", "g", "ml", "U", null]},
+        "frequency": {"type": "string"}, "duration": {"type": "string"},
+        "confidence": {"type": "number"}, "color": {"type": "string"},
+        "source_sentence": {"type": "string"}, "negated": {"type": "boolean"}}}},
+    "symptoms": {"type": "array"}, "vitals": {"type": "array"},
+    "allergies": {"type": "array"}, "negations": {"type": "array"},
+    "diagnosis": {"type": "object"}, "followup": {"type": "object"}
+  }
+}

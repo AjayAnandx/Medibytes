@@ -426,11 +426,18 @@ def ollama_tidy(entities, normalized_en, model="llama3.2:3b", timeout=60):
     return entities
 
 
-def run_stt_extract(clean_wav, job_id="demo-001", use_llm="auto", model="tiny-int8", ollama_model="llama3.2:3b"):
-    stt = transcribe(clean_wav, job_id, model=model)
-    norm = normalize_text(stt["text"])
+def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
+                     ollama_model="llama3.2:3b", engine="", source="audio"):
+    """Stages 3-4 on already-transcribed text: normalize -> tag -> extract.
+
+    Shared post-text path (audio STT today; image OCR later). `source` is
+    accepted for the upcoming image path but does not change behavior yet.
+    `segments` lang tags are refreshed in place, as before.
+    Returns (transcript_json, entities_json).
+    """
+    norm = normalize_text(text)
     # refresh segment lang tags with demo LID
-    for s in stt["segments"]:
+    for s in segments:
         s["lang"] = detect_lang_tag(s["text"]) if len(s["text"]) < 200 else norm["lang_tag"]
     ent, llm_reason = None, ""
     if use_llm in (True, "auto"):
@@ -438,21 +445,27 @@ def run_stt_extract(clean_wav, job_id="demo-001", use_llm="auto", model="tiny-in
             from llm_extract import extract_llm_primary, merge_primary, ollama_available
             ok, why = ollama_available(ollama_model)
             if ok or use_llm is True:
-                base = extract_entities(stt["text"], norm["normalized_en"], stt["segments"])
-                llm = extract_llm_primary(stt["text"], norm["normalized_en"], stt["segments"], model=ollama_model)
+                base = extract_entities(text, norm["normalized_en"], segments)
+                llm = extract_llm_primary(text, norm["normalized_en"], segments, model=ollama_model)
                 ent = merge_primary(base, llm, model=ollama_model)
             else:
                 llm_reason = why
         except ValueError as e:
             ent, llm_reason = None, str(e)
     if ent is None:
-        ent = extract_entities(stt["text"], norm["normalized_en"], stt["segments"])
+        ent = extract_entities(text, norm["normalized_en"], segments)
         if use_llm is True:
             ent = ollama_tidy(ent, norm["normalized_en"], model=ollama_model)
         elif use_llm == "auto" and llm_reason:
             ent["llm_engine"] = f"regex-fallback ({llm_reason})"
-    transcript_json = {"job_id": job_id, "text": stt["text"], "language": norm["lang_tag"],
-                       "segments": stt["segments"], "normalized_en": norm["normalized_en"],
-                       "normalizations": norm["normalizations"], "stt_engine": stt["engine"]}
+    transcript_json = {"job_id": job_id, "text": text, "language": norm["lang_tag"],
+                       "segments": segments, "normalized_en": norm["normalized_en"],
+                       "normalizations": norm["normalizations"], "stt_engine": engine}
     entities_json = {"job_id": job_id, **ent}
     return transcript_json, entities_json
+
+
+def run_stt_extract(clean_wav, job_id="demo-001", use_llm="auto", model="tiny-int8", ollama_model="llama3.2:3b"):
+    stt = transcribe(clean_wav, job_id, model=model)
+    return run_text_extract(stt["text"], stt["segments"], job_id, use_llm=use_llm,
+                            ollama_model=ollama_model, engine=stt["engine"], source="audio")

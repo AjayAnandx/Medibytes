@@ -62,6 +62,8 @@ UCUM = {"milligram": "mg", "milligrams": "mg", "microgram": "mcg", "micrograms":
         "gram": "g", "grams": "g", "milliliter": "ml", "milliliters": "ml",
         "units": "U", "unit": "U"}
 SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+# source="image": each OCR line is also a boundary (audio text never has "\n")
+OCR_LINE_SPLIT = re.compile(r"(?<=[.!?])\s+|\s*\n\s*")
 
 _ONES = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
          "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
@@ -185,8 +187,19 @@ def detect_lang_tag(text):
     return "en-IN"
 
 
-def normalize_text(text):
-    """Stage 3: Hinglish map + UCUM-ish unit spacing + mix tag."""
+def normalize_text(text, source="audio"):
+    """Stage 3: Hinglish map + UCUM-ish unit spacing + mix tag.
+
+    source="image": OCR lines are normalized one by one (no rule spans a line
+    break) and the speech-mishear rules (BPA, by AC, Rhoomair) are skipped so
+    nothing absent from the page is invented. Audio path is unchanged.
+    """
+    if source == "image" and "\n" in text:
+        per = [normalize_text(ln, source="image") for ln in text.split("\n")]
+        return {"normalized_en": "\n".join(p["normalized_en"] for p in per),
+                "normalizations": [n for p in per for n in p["normalizations"]],
+                "lang_tag": detect_lang_tag(text)}
+    speech = source != "image"
     normalizations = []
     out = text
     for src, dst in HINGLISH_MAP:
@@ -198,15 +211,15 @@ def normalize_text(text):
     out = re.sub(r"(\d+)\s*(mg|mcg|ml|g)\b", r"\1 \2", out)
     out = re.sub(r"\bB[\s-]*P\b", "BP", out)  # B-P -> BP
     # Narrow phonetic: BPA + digits -> BP (ward STT mishear, e.g. "BPA 130 by AC")
-    if re.search(r"\bBPA\s*\d", out, flags=re.I):
+    if speech and re.search(r"\bBPA\s*\d", out, flags=re.I):
         out = re.sub(r"\bBPA(?=\s*\d)", "BP", out, flags=re.I)
         normalizations.append({"from": "BPA", "to": "BP"})
     # Narrow phonetic: "<sys> by AC" -> "<sys> by 80" (AC misheard for eighty)
-    if re.search(r"\d\s*(?:by|/|over|of)\s*AC\b", out, flags=re.I):
+    if speech and re.search(r"\d\s*(?:by|/|over|of)\s*AC\b", out, flags=re.I):
         out = re.sub(r"(\d\s*(?:by|/|over|of)\s*)AC\b", r"\g<1>80", out, flags=re.I)
         normalizations.append({"from": "by AC", "to": "by 80"})
     # Room-air mishear: Rhoomair -> room air (SpO2 sentence only)
-    if re.search(r"rhoomair", out, flags=re.I):
+    if speech and re.search(r"rhoomair", out, flags=re.I):
         out = re.sub(r"rhoomair", "room air", out, flags=re.I)
         normalizations.append({"from": "Rhoomair", "to": "room air"})
     before_spo2 = out
@@ -237,8 +250,15 @@ def _negated(sentence):
     return bool(NEG_PAT.search(sentence))
 
 
-def extract_entities(text, normalized_en, segments):
-    """Stage 4 regex core. Returns demo entities_json."""
+def extract_entities(text, normalized_en, segments, source="audio"):
+    """Stage 4 regex core. Returns demo entities_json.
+
+    source="image": every OCR line is a sentence boundary (negation, drug,
+    diagnosis and follow-up never span lines) and there is no fuzzy drug-name
+    matching; unknown names stay only in the raw OCR text. Audio is unchanged.
+    """
+    image = source == "image"
+    splitter = OCR_LINE_SPLIT if image else SENT_SPLIT
     drugs_known = {d["name"].lower() for d in _load_drug_list()}
     alias_to_canonical = {}
     for d in _load_drug_list():
@@ -248,11 +268,14 @@ def extract_entities(text, normalized_en, segments):
     drugs, symptoms, vitals, allergies, negations = [], [], [], [], []
     # cross-sentence join: "paracetamol,\n500 mg" -> "paracetamol 500 mg"
     # also "ibuprofen, for 100 mg" -> "ibuprofen for 100 mg" (second-drug clause)
-    text = re.sub(r"([A-Za-z]+),\s+(?=(?:for\s+)?\d+\s*(?:mg|mcg|g|ml|U)\b)", r"\1 ", text)
-    sents = SENT_SPLIT.split(text)
+    if image:  # same join, but never across an OCR line break
+        text = re.sub(r"([A-Za-z]+),[ \t]+(?=(?:for\s+)?\d+\s*(?:mg|mcg|g|ml|U)\b)", r"\1 ", text)
+    else:
+        text = re.sub(r"([A-Za-z]+),\s+(?=(?:for\s+)?\d+\s*(?:mg|mcg|g|ml|U)\b)", r"\1 ", text)
+    sents = splitter.split(text)
     # match on digitized copy, keep original wording as proof
     etext = numwords_to_digits(text)
-    esents = SENT_SPLIT.split(etext)
+    esents = splitter.split(etext)
     pairs = list(zip(esents, sents)) if len(esents) == len(sents) else [(s, s) for s in sents]
     sents = [p[0] for p in pairs]
     raws = [p[1] for p in pairs]
@@ -270,6 +293,8 @@ def extract_entities(text, normalized_en, segments):
                 canon = alias_to_canonical.get(rawm)
                 fuzzy_note = ""
                 if canon is None and rawm not in drugs_known:
+                    if image:
+                        continue  # OCR: exact drug-list/alias match only, no guessing
                     # fuzzy sound-alike fallback: asitromaisin -> azithromycin (difflib stand-in)
                     import difflib
                     best, score = None, 0
@@ -346,14 +371,20 @@ def extract_entities(text, normalized_en, segments):
                               "note": "rule stand-in for CAN-BERT"})
 
     # diagnosis + follow-up sentences (LLM-primary covers more; regex floor)
-    m = re.search(r"diagnosis\s*[—–\-:]*\s*([^.]+)", text, re.I)
-    if m and m.group(1).strip():
-        diagnosis = {"text": m.group(1).strip(), "icd10": "", "confidence": 0.85,
-                     "color": "YELLOW", "source_sentence": m.group(0).strip()}
-    m = re.search(r"(review after[^.]+|follow[- ]?up[^.]+|come back[^.]+|in one week[^.]*|in \d+ (?:days?|weeks?)[^.]*follow[^.]*)", text, re.I)
-    if m:
-        followup = {"text": m.group(1).strip(), "confidence": 0.88, "color": "YELLOW",
-                    "source_sentence": m.group(0).strip()}
+    # audio: whole text; image: first matching OCR line (no run-on into next line)
+    scopes = text.split("\n") if image else [text]
+    for scope in scopes:
+        m = re.search(r"diagnosis\s*[—–\-:]*\s*([^.]+)", scope, re.I)
+        if m and m.group(1).strip():
+            diagnosis = {"text": m.group(1).strip(), "icd10": "", "confidence": 0.85,
+                         "color": "YELLOW", "source_sentence": m.group(0).strip()}
+            break
+    for scope in scopes:
+        m = re.search(r"(review after[^.]+|follow[- ]?up[^.]+|come back[^.]+|in one week[^.]*|in \d+ (?:days?|weeks?)[^.]*follow[^.]*)", scope, re.I)
+        if m:
+            followup = {"text": m.group(1).strip(), "confidence": 0.88, "color": "YELLOW",
+                        "source_sentence": m.group(0).strip()}
+            break
 
     # optional spaCy-sm boost (adds no new entities in demo, just confidence nudge)
     try:
@@ -430,12 +461,15 @@ def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
                      ollama_model="llama3.2:3b", engine="", source="audio"):
     """Stages 3-4 on already-transcribed text: normalize -> tag -> extract.
 
-    Shared post-text path (audio STT today; image OCR later). `source` is
-    accepted for the upcoming image path but does not change behavior yet.
+    Shared post-text path for audio STT and image OCR.
+    source="image": regex only (Ollama never runs, whatever use_llm says), no
+    speech-mishear normalization, no fuzzy drug match, OCR lines are boundaries.
     `segments` lang tags are refreshed in place, as before.
     Returns (transcript_json, entities_json).
     """
-    norm = normalize_text(text)
+    if source == "image":
+        use_llm = False  # OCR text is never sent to an LLM in this phase
+    norm = normalize_text(text, source=source)
     # refresh segment lang tags with demo LID
     for s in segments:
         s["lang"] = detect_lang_tag(s["text"]) if len(s["text"]) < 200 else norm["lang_tag"]
@@ -445,7 +479,7 @@ def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
             from llm_extract import extract_llm_primary, merge_primary, ollama_available
             ok, why = ollama_available(ollama_model)
             if ok or use_llm is True:
-                base = extract_entities(text, norm["normalized_en"], segments)
+                base = extract_entities(text, norm["normalized_en"], segments, source=source)
                 llm = extract_llm_primary(text, norm["normalized_en"], segments, model=ollama_model)
                 ent = merge_primary(base, llm, model=ollama_model)
             else:
@@ -453,7 +487,7 @@ def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
         except ValueError as e:
             ent, llm_reason = None, str(e)
     if ent is None:
-        ent = extract_entities(text, norm["normalized_en"], segments)
+        ent = extract_entities(text, norm["normalized_en"], segments, source=source)
         if use_llm is True:
             ent = ollama_tidy(ent, norm["normalized_en"], model=ollama_model)
         elif use_llm == "auto" and llm_reason:
@@ -461,6 +495,9 @@ def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
     transcript_json = {"job_id": job_id, "text": text, "language": norm["lang_tag"],
                        "segments": segments, "normalized_en": norm["normalized_en"],
                        "normalizations": norm["normalizations"], "stt_engine": engine}
+    if source == "image":  # audio output shape stays byte-identical
+        transcript_json["source"] = "image"
+        ent["llm_engine"] = "regex-only (image source)"
     entities_json = {"job_id": job_id, **ent}
     return transcript_json, entities_json
 

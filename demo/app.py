@@ -23,7 +23,7 @@ except Exception:
     HAS_PLOT = False
 
 from audio_clean import _load_mono_float, clean_audio
-from stt_extract import run_stt_extract
+from stt_extract import run_stt_extract, run_text_extract
 from fill_template import fill_template
 from ocr_extract import SUPPORTED_EXTS as OCR_EXTS, extract_text_from_image  # easyocr loads lazily
 
@@ -431,16 +431,35 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
             st.warning(f"preview skipped: {e}")
 
 
-def _image_ocr_view():
-    """Image source (Phase 2): upload -> preview -> EasyOCR -> raw text only.
+def _ocr_segments(ocr):
+    """OCR result lines -> transcript-compatible segments (verbatim line text).
 
-    OCR text is shown verbatim and is NOT yet sent to normalize / extract /
-    Ollama / fill_template. No correction or guessing of any word or number.
+    No timestamps exist for images, so start/end are 0.0; lang is refreshed
+    by run_text_extract. Nothing is added beyond what EasyOCR returned.
+    """
+    return [{"id": ln["line"], "text": ln["text"], "start": 0.0, "end": 0.0,
+             "lang": "", "confidence": ln["min_confidence"], "words": []}
+            for ln in ocr.get("lines", [])]
+
+
+def _image_text_extract(ocr, upload_name):
+    """Raw OCR text -> run_text_extract(source="image", regex only). Returns (tj, ej)."""
+    stem = os.path.splitext(upload_name)[0][:12].replace(" ", "_")
+    return run_text_extract(ocr["text"], _ocr_segments(ocr), job_id=f"img-{stem}",
+                            use_llm=False, engine=ocr.get("engine", "easyocr"), source="image")
+
+
+def _image_ocr_view():
+    """Image source: upload -> preview -> EasyOCR -> raw text -> normalize -> regex extract.
+
+    Raw OCR text is shown verbatim. Normalize/extract run with source="image"
+    (no Ollama, no speech-mishear rules, no fuzzy drug match, OCR lines are
+    boundaries). Not yet sent to fill_template / discharge note.
     """
     with st.sidebar:
         up = st.file_uploader("Drop .png/.jpg/.jpeg", type=[e.lstrip(".") for e in OCR_EXTS])
         run_btn = st.button("▶ Run OCR", type="primary", use_container_width=True)
-        st.caption("Image → EasyOCR → raw text. Not yet connected to normalize/extract/discharge note.")
+        st.caption("Image → EasyOCR → raw text → normalize → regex extract (no LLM). Not yet connected to the discharge note.")
 
     if up is None:
         st.info("Upload a PNG/JPG/JPEG image in the sidebar and press ▶ Run OCR.")
@@ -474,6 +493,13 @@ def _image_ocr_view():
                 pass
         r = {**r, "source_file": up.name}  # show upload name, not the deleted temp path
         st.session_state[res_key] = r
+        x = None
+        if r.get("success"):
+            try:
+                x = _image_text_extract(r, up.name)
+            except Exception as e:
+                x = {"error": f"{type(e).__name__}: {e}"}
+        st.session_state[res_key + "_x"] = x
 
     r = st.session_state.get(res_key)
     with col_txt:
@@ -499,6 +525,32 @@ def _image_ocr_view():
                          use_container_width=True, hide_index=True)
         with st.expander("Full OCR result (JSON)"):
             st.json(r)
+
+        # ---- normalize + regex extract (source="image"); no discharge note yet ----
+        st.divider()
+        x = st.session_state.get(res_key + "_x")
+        if x is None:
+            return
+        if isinstance(x, dict) and "error" in x:
+            st.error("Text extraction failed (raw OCR above is unaffected)")
+            st.code(x["error"], language=None)
+            return
+        tj, ej = x
+        st.markdown("**Normalized text** (deterministic rules only; regex extraction, no LLM)")
+        st.code(tj.get("normalized_en", ""), language=None)
+        norms = tj.get("normalizations", [])
+        st.caption("Normalizations: " + (", ".join(f"{n['from']} → {n['to']}" for n in norms)
+                                         if norms else "none"))
+        counts = {k: len(ej.get(k, []) or []) for k in ("drugs", "symptoms", "vitals", "allergies")}
+        st.caption("Extracted: " + " | ".join(f"{k} {v}" for k, v in counts.items())
+                   + f" | diagnosis {'yes' if ej.get('diagnosis') else 'no'}"
+                   + f" | follow-up {'yes' if ej.get('followup') else 'no'}"
+                   + f" | engine {ej.get('llm_engine', '')}")
+        with st.expander("Extracted entities (debug JSON)"):
+            st.json(ej)
+        with st.expander("Transcript JSON (debug)"):
+            st.json(tj)
+        st.caption("Not yet connected to the discharge note. Verify every value against the image.")
 
 
 def main():

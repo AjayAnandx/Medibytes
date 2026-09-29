@@ -25,6 +25,7 @@ except Exception:
 from audio_clean import _load_mono_float, clean_audio
 from stt_extract import run_stt_extract
 from fill_template import fill_template
+from ocr_extract import SUPPORTED_EXTS as OCR_EXTS, extract_text_from_image  # easyocr loads lazily
 
 COLOR = {"GREEN": "#10B981", "YELLOW": "#F59E0B", "RED": "#EF4444", "DENIED": "#9CA3AF"}
 
@@ -430,10 +431,85 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
             st.warning(f"preview skipped: {e}")
 
 
+def _image_ocr_view():
+    """Image source (Phase 2): upload -> preview -> EasyOCR -> raw text only.
+
+    OCR text is shown verbatim and is NOT yet sent to normalize / extract /
+    Ollama / fill_template. No correction or guessing of any word or number.
+    """
+    with st.sidebar:
+        up = st.file_uploader("Drop .png/.jpg/.jpeg", type=[e.lstrip(".") for e in OCR_EXTS])
+        run_btn = st.button("▶ Run OCR", type="primary", use_container_width=True)
+        st.caption("Image → EasyOCR → raw text. Not yet connected to normalize/extract/discharge note.")
+
+    if up is None:
+        st.info("Upload a PNG/JPG/JPEG image in the sidebar and press ▶ Run OCR.")
+        return
+
+    col_img, col_txt = st.columns([1, 1.2])
+    with col_img:
+        st.markdown("**Uploaded image**")
+        try:
+            st.image(up.getvalue(), caption=up.name)
+        except Exception as e:
+            st.warning(f"Preview unavailable ({type(e).__name__}); OCR will still report whether the file is readable.")
+
+    res_key = f"ocr_{up.name}_{up.size}"
+    if run_btn:
+        ext = os.path.splitext(up.name)[1].lower()
+        tmp_fd, tmp_img = tempfile.mkstemp(prefix="medibytes_ocr_", suffix=ext)
+        try:
+            with os.fdopen(tmp_fd, "wb") as f:
+                f.write(up.getbuffer())
+            with st.spinner("Running EasyOCR (first run downloads models, ~100MB)…"):
+                r = extract_text_from_image(tmp_img)
+        except Exception as e:
+            r = {"success": False, "text": "", "engine": "easyocr", "source_file": tmp_img,
+                 "blocks": [], "lines": [], "error_code": "APP_ERROR",
+                 "error": f"{type(e).__name__}: {e}"}
+        finally:
+            try:
+                os.remove(tmp_img)
+            except OSError:
+                pass
+        r = {**r, "source_file": up.name}  # show upload name, not the deleted temp path
+        st.session_state[res_key] = r
+
+    r = st.session_state.get(res_key)
+    with col_txt:
+        if r is None:
+            st.info("Press ▶ Run OCR to extract text from this image.")
+            return
+        if not r.get("success"):
+            code = r.get("error_code", "UNKNOWN")
+            (st.warning if code == "NO_TEXT_DETECTED" else st.error)(f"OCR failed: {code}")
+            st.code(r.get("error", ""), language=None)
+            if code == "ENGINE_UNAVAILABLE":
+                st.caption("Install: python -m pip install easyocr==1.7.2")
+            return
+        lines = r.get("lines", [])
+        low = min((ln["min_confidence"] for ln in lines), default=0.0)
+        st.success(f"OCR ok | engine `{r.get('engine')}` | {len(lines)} lines | "
+                   f"{len(r.get('blocks', []))} blocks | lowest confidence {low:.2f}")
+        st.markdown("**Raw OCR text** (verbatim, uncorrected — verify against the image)")
+        st.code(r.get("text", ""), language=None)
+        with st.expander("Per-line confidence"):
+            st.dataframe([{"line": ln["line"], "min_confidence": ln["min_confidence"],
+                           "blocks": ln["block_count"], "text": ln["text"]} for ln in lines],
+                         use_container_width=True, hide_index=True)
+        with st.expander("Full OCR result (JSON)"):
+            st.json(r)
+
+
 def main():
     st.set_page_config(page_title="MediBytes - voice to discharge note", layout="wide")
     st.title("MediBytes — voice → discharge note  🏥")
     st.caption("One-command investor demo (CPU-only, offline STT). Stages 0 Receive → 1 Clean → 2 Text → 3 Normalize → 4 Extract → 5 Premium A4 note. Demo only — verify before clinical use.")
+
+    source = st.sidebar.radio("Input source", ["Audio", "Image"], horizontal=True)
+    if source == "Image":
+        _image_ocr_view()
+        return
 
     with st.sidebar:
         st.header("Controls")

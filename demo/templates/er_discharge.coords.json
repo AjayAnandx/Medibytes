@@ -5,6 +5,7 @@
   "origin": "top-left paper edge, units mm. Single page strictly — .page overflow hidden.",
   "base_font": {"family": "Inter,Arial,Noto Sans", "size_pt": 9, "line_mm": 3.5},
   "slots": {
+    "patient_name": {"page": 1, "x": 27, "y": 31.6, "w": 42, "h": 4, "align": "left", "max_chars": 24, "overflow": "truncate", "source": "image only"},
     "cc_blank": {"page": 1, "x": 30, "y": 48, "w": 150, "h": 8, "align": "left", "max_chars": 60, "overflow": "wrap", "style": "blank_underline"},
     "hpi_inline_1": {"page": 1, "x": 22, "y": 66, "w": 40, "h": 5, "align": "left", "max_chars": 22, "overflow": "truncate", "anchor": "prefix"},
     "hpi_inline_2": {"page": 1, "x": 22, "y": 72, "w": 40, "h": 5, "align": "left", "max_chars": 22, "overflow": "truncate", "anchor": "prefix"},

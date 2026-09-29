@@ -43,7 +43,7 @@ body{margin:0;background:#9CA3AF;font-family:Inter,Arial,"Noto Sans",sans-serif}
 <div class="bg">
 <div class="hband"><h1>CITY CARE HOSPITAL — ER DISCHARGE</h1>
 <div class="sub">{{ job_id }} | lang {{ language }} | {{ template_id }}:{{ template_version }} | {{ date }} | DEMO — verify before clinical use</div></div>
-<div class="pband">Patient: ________________ &nbsp;&nbsp; Age/Sex: ______ &nbsp;&nbsp; Visit ID: {{ job_id }} &nbsp;&nbsp; Physician: ________________</div>
+<div class="pband">Patient: {% if slots|selectattr("key", "equalto", "patient_name")|list %}<span style="display:inline-block;width:42mm"></span>{% else %}________________{% endif %} &nbsp;&nbsp; Age/Sex: ______ &nbsp;&nbsp; Visit ID: {{ job_id }} &nbsp;&nbsp; Physician: ________________</div>
 <div class="card" style="top:42mm;height:16mm"><h4>CHIEF COMPLAINT</h4><div class="body"></div></div>
 <div class="card" style="top:60mm;height:24mm"><h4>HISTORY OF PRESENT ILLNESS</h4><div class="body">{{ hpi_bg }}</div></div>
 <table class="dtable"><tr><th style="width:52mm">Medicine</th><th style="width:22mm;text-align:right">Dose</th><th style="width:14mm">Unit</th><th style="width:38mm">Frequency</th><th style="width:25mm">Duration</th><th>Conf</th></tr></table>

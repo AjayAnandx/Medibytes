@@ -64,6 +64,14 @@ UCUM = {"milligram": "mg", "milligrams": "mg", "microgram": "mcg", "micrograms":
 SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 # source="image": each OCR line is also a boundary (audio text never has "\n")
 OCR_LINE_SPLIT = re.compile(r"(?<=[.!?])\s+|\s*\n\s*")
+# source="image" only, matched per OCR line. Label + value must share one line.
+IMG_PATIENT_PAT = re.compile(
+    r"^\s*(?:patient(?:'s)?(?:\s+name)?|name)\s*[:\-]\s*(?P<name>[A-Za-z][A-Za-z .'\-]{1,59})\s*$", re.I)
+IMG_PATIENT_STOP = {"name", "date", "age", "sex", "gender", "address", "phone", "mobile", "dob",
+                    "id", "no", "mrn", "uhid", "ward", "bed", "doctor", "dr", "signature"}
+IMG_TEMP_PAT = re.compile(
+    r"\btemp(?:erature)?\b\s*[:\-]?\s*(?P<val>\d{2,3}(?:\.\d{1,2})?)\s*°?\s*(?P<unit>[FC])\b", re.I)
+IMG_TEMP_RANGE = {"F": (93.0, 110.0), "C": (34.0, 43.5)}  # outside -> not extracted (never corrected)
 
 _ONES = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
          "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
@@ -386,6 +394,29 @@ def extract_entities(text, normalized_en, segments, source="audio"):
                         "source_sentence": m.group(0).strip()}
             break
 
+    # image only: labelled patient name + labelled temperature, one OCR line each
+    patient = {}
+    if image:
+        has_temp = any(re.search(r"degree|temp|fahrenheit|°", v["text"], re.I) for v in vitals)
+        for line in text.split("\n"):
+            pm = IMG_PATIENT_PAT.match(line)
+            if not patient and pm:
+                name = pm.group("name").strip()
+                toks = {t.strip(".'-").lower() for t in name.split()}
+                if len(re.sub(r"[^A-Za-z]", "", name)) >= 2 and not toks & IMG_PATIENT_STOP:
+                    patient = {"name": name, "confidence": 0.85, "color": "YELLOW",
+                               "source_sentence": line.strip(), "note": "labelled OCR line - verify"}
+            tm = IMG_TEMP_PAT.search(line)
+            if not has_temp and tm:
+                lo, hi = IMG_TEMP_RANGE[tm.group("unit").upper()]
+                if lo <= float(tm.group("val")) <= hi:  # implausible OCR value -> left in raw text only
+                    t = " ".join(tm.group(0).split())
+                    if len(t) > 20:  # coords shows vitals text[:20]; keep the unit visible
+                        t = f"Temp {tm.group('val')} {tm.group('unit')}"
+                    vitals.append({"text": t, "confidence": 0.87, "color": "YELLOW",
+                                   "source_sentence": line.strip()})
+                    has_temp = True
+
     # optional spaCy-sm boost (adds no new entities in demo, just confidence nudge)
     try:
         import spacy
@@ -393,9 +424,12 @@ def extract_entities(text, normalized_en, segments, source="audio"):
         _ = nlp(text[:500])
     except Exception:
         pass
-    return {"drugs": drugs, "symptoms": symptoms, "vitals": vitals,
-            "allergies": allergies, "negations": negations,
-            "diagnosis": diagnosis, "followup": followup}
+    out = {"drugs": drugs, "symptoms": symptoms, "vitals": vitals,
+           "allergies": allergies, "negations": negations,
+           "diagnosis": diagnosis, "followup": followup}
+    if patient:  # image source only; audio output shape unchanged
+        out["patient"] = patient
+    return out
 
 
 UNITS_OK = {"mg", "mcg", "g", "ml", "U"}

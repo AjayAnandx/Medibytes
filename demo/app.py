@@ -122,6 +122,7 @@ def _entity_cards(ej):
 # Edits patch ENTITY fields (not slot text), then slots re-resolve so colors,
 # NIL/RED states and truncation recompute. transcripts/ stay immutable.
 _EDITABLE_SLOTS = (
+    "patient_name",  # image source only (coords.resolve_slots adds it only for images)
     "cc_blank",
     "drug_0_name", "drug_0_dose", "drug_0_unit", "drug_0_freq", "drug_0_duration",
     "drug_1_name", "drug_1_dose", "drug_1_unit", "drug_1_freq", "drug_1_duration",
@@ -129,6 +130,7 @@ _EDITABLE_SLOTS = (
     "allergy_line", "dx_text", "dx_code_box", "fu_text", "sign_line",
 )
 _SLOT_LABELS = {
+    "patient_name": "Patient name",
     "cc_blank": "Chief complaint",
     "drug_0_name": "Drug 1 name", "drug_0_dose": "Drug 1 dose", "drug_0_unit": "Drug 1 unit",
     "drug_0_freq": "Drug 1 frequency", "drug_0_duration": "Drug 1 duration",
@@ -163,9 +165,11 @@ def _parse_dose(raw):
         return raw  # keep physician text; coords renders it verbatim
 
 
-def _apply_edits(orig_ej, edits):
+def _apply_edits(orig_ej, edits, defaults=None):
     """Patch a deepcopy of the AI entities from slot_key -> new text.
 
+    defaults: slot_key -> currently resolved AI text (from _slot_defaults). Used
+    only to keep untouched vitals when another vital is corrected.
     Returns (patched_entities, audit_entries). Never mutates transcripts.
     """
     patched = copy.deepcopy(orig_ej)
@@ -176,6 +180,16 @@ def _apply_edits(orig_ej, edits):
         if str(old) != str(new):
             audit.append({"ts": ts, "slot_key": slot_key, "entity_path": path,
                           "original_ai": old, "human_corrected": new})
+
+    # patient name (image source only) -> patient.name; NIL/blank keeps it missing (RED)
+    if "patient_name" in edits:
+        new = edits["patient_name"].strip()
+        if new.upper().startswith("NIL"):
+            new = ""
+        pt = patched.setdefault("patient", {})
+        _record("patient_name", "patient.name", pt.get("name", ""), new)
+        pt["name"] = new
+        pt["color"] = "YELLOW"
 
     # chief complaint -> first non-negated symptom
     if "cc_blank" in edits:
@@ -224,6 +238,14 @@ def _apply_edits(orig_ej, edits):
     sv = patched.setdefault("structured_vitals", {})
     vmap = {"vitals_bp_sys": "sys", "vitals_bp_dia": "dia",
             "vitals_temp": "temp", "vitals_spo2": "spo2"}
+    # structured_vitals replaces ALL vitals boxes once non-empty, so when any
+    # vital is corrected, carry over the untouched boxes' resolved AI values.
+    # NIL stays empty (-> RED). Not audited: no human change.
+    if defaults and any(sk in edits for sk in vmap):
+        for sk, field in vmap.items():
+            cur = str(defaults.get(sk, "") or "").strip()
+            if sk not in edits and field not in sv and cur and not cur.upper().startswith("NIL"):
+                sv[field] = cur
     for sk, field in vmap.items():
         if sk in edits:
             new = edits[sk].strip()
@@ -383,7 +405,7 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
 
             ai_defaults, _r0 = _slot_defaults(orig_ej, tj)
             # working entities = AI + saved human edits
-            work_ej, _ = _apply_edits(orig_ej, saved_edits) if saved_edits else (orig_ej, [])
+            work_ej, _ = _apply_edits(orig_ej, saved_edits, ai_defaults) if saved_edits else (orig_ej, [])
 
             col_form, col_prev = st.columns([1, 1.35])
             with col_form:
@@ -400,7 +422,7 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                             form_vals[sk] = st.text_input(_SLOT_LABELS.get(sk, sk), value=cur, key=f"{job_id}_{sk}")
                     submitted = st.form_submit_button("Apply corrections", use_container_width=True)
                 if submitted:
-                    patched, new_audit = _apply_edits(orig_ej, {**saved_edits, **form_vals})
+                    patched, new_audit = _apply_edits(orig_ej, {**saved_edits, **form_vals}, ai_defaults)
                     # keep only real diffs vs AI original
                     st.session_state[edits_key] = {k: v for k, v in {**saved_edits, **form_vals}.items()
                                                    if str(v) != str(ai_defaults.get(k, ""))}
@@ -416,7 +438,7 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                     st.rerun()
 
                 # re-resolve AFTER edits for RED count + preview
-                cur_ej, _ = _apply_edits(orig_ej, saved_edits) if saved_edits else (orig_ej, [])
+                cur_ej, _ = _apply_edits(orig_ej, saved_edits, ai_defaults) if saved_edits else (orig_ej, [])
                 _d, r_cur = _slot_defaults(cur_ej, tj)
                 reds = [s for s in r_cur.get("slots", []) if s.get("color") == "RED"]
                 n_audit = 0

@@ -80,6 +80,13 @@ def resolve_slots(entities, transcript, template_id="er_discharge"):
             d["chip_x"] = 174
         return d
 
+    # patient name: image source only (required there; audio notes get no field)
+    if (transcript or {}).get("source") == "image" and "patient_name" in S:
+        pt = ents.get("patient") or {}
+        pn = str(pt.get("name", "") or "").strip()
+        slots.append(slot("patient_name", pn or "NIL — not found", "YELLOW" if pn else "RED",
+                          pt.get("confidence", "") if pn else ""))
+
     # chief complaint: first non-negated symptom, deduped
     seen = set()
     for s in ents.get("symptoms", []):

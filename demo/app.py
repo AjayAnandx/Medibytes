@@ -4,8 +4,10 @@ Direct:  streamlit run demo/app.py
 """
 import copy
 import datetime
+import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import subprocess
@@ -287,44 +289,91 @@ def _persist_corrected(job_id, patched, audit_entries):
     return efp, afp
 
 
-def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_html=None):
+def _ocr_tab(image_bytes, ocr):
+    """Image-source first tab: uploaded image, verbatim OCR text, confidence."""
+    ocr = ocr or {}
+    lines = ocr.get("lines", [])
+    c1, c2 = st.columns([1, 1.2])
+    if image_bytes:
+        try:
+            c1.image(image_bytes, caption=ocr.get("source_file", ""))
+        except Exception as e:
+            c1.warning(f"Preview unavailable ({type(e).__name__})")
+    low = min((ln["min_confidence"] for ln in lines), default=0.0)
+    c2.markdown(f"**Raw OCR text** (verbatim) — engine `{ocr.get('engine', '')}`, "
+                f"{len(lines)} lines, lowest confidence {low:.2f}")
+    c2.code(ocr.get("text", ""), language=None)
+    with st.expander("Per-line confidence"):
+        st.dataframe([{"line": ln["line"], "min_confidence": ln["min_confidence"],
+                       "blocks": ln["block_count"], "text": ln["text"]} for ln in lines],
+                     use_container_width=True, hide_index=True)
+    with st.expander("Full OCR result (JSON)"):
+        st.json(ocr)
+
+
+def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_html=None,
+                 source="audio", image_bytes=None, ocr=None):
+    """Result tabs. source="audio" (default) is the original behavior.
+
+    source="image": OCR tab instead of Audio, OCR line numbers instead of
+    timestamps, and corrections / audit / verify / exports live in session
+    state only (nothing written to transcripts/, entities/ or exports/).
+    """
+    image = source == "image"
     st.success(f"Job `{job_id}`  |  lang `{tj.get('language')}`  |  engine `{tj.get('stt_engine')}`")
-    steps = ["receive ok", f"clean vad={meta.get('vad_ratio')}" if meta else "clean",
-             f"{len(tj.get('segments', []))} segments", f"{len(ej.get('drugs', []))} drugs",
-             "discharge ready"]
+    if image:
+        steps = ["receive ok", f"OCR {len(tj.get('segments', []))} lines",
+                 f"{len(ej.get('drugs', []))} drugs", "discharge ready"]
+    else:
+        steps = ["receive ok", f"clean vad={meta.get('vad_ratio')}" if meta else "clean",
+                 f"{len(tj.get('segments', []))} segments", f"{len(ej.get('drugs', []))} drugs",
+                 "discharge ready"]
     st.write("  →  ".join(f"✅ {s}" for s in steps))
 
-    tab_audio, tab_text, tab_ent, tab_note = st.tabs(["Audio", "Transcript", "Entities", "Discharge note"])
+    tab_audio, tab_text, tab_ent, tab_note = st.tabs(["OCR" if image else "Audio", "Transcript",
+                                                      "Entities", "Discharge note"])
     with tab_audio:
-        c1, c2 = st.columns(2)
-        if raw_path and os.path.isfile(raw_path or ""):
-            c1.markdown("**Raw**")
-            c1.audio(raw_path)
-        if clean_path and os.path.isfile(clean_path or ""):
-            c2.markdown("**Cleaned 16k mono**")
-            c2.audio(clean_path)
-        if HAS_PLOT and raw_path and clean_path and os.path.isfile(raw_path) and os.path.isfile(clean_path):
-            try:
-                y0, sr0 = _load_mono_float(raw_path)
-                y1, sr1 = _load_mono_float(clean_path)
-                st.pyplot(_wavefig(y0, sr0, y1, sr1, (meta or {}).get("vad_ratio", "?")))
-            except Exception as e:
-                st.warning(f"waveform skipped: {e}")
-        if meta:
-            st.json({k: meta.get(k) for k in ("duration_s", "vad_ratio", "snr_before_db", "snr_after_db", "denoise") if k in meta})
+        if image:
+            _ocr_tab(image_bytes, ocr)
+        else:
+            c1, c2 = st.columns(2)
+            if raw_path and os.path.isfile(raw_path or ""):
+                c1.markdown("**Raw**")
+                c1.audio(raw_path)
+            if clean_path and os.path.isfile(clean_path or ""):
+                c2.markdown("**Cleaned 16k mono**")
+                c2.audio(clean_path)
+            if HAS_PLOT and raw_path and clean_path and os.path.isfile(raw_path) and os.path.isfile(clean_path):
+                try:
+                    y0, sr0 = _load_mono_float(raw_path)
+                    y1, sr1 = _load_mono_float(clean_path)
+                    st.pyplot(_wavefig(y0, sr0, y1, sr1, (meta or {}).get("vad_ratio", "?")))
+                except Exception as e:
+                    st.warning(f"waveform skipped: {e}")
+            if meta:
+                st.json({k: meta.get(k) for k in ("duration_s", "vad_ratio", "snr_before_db", "snr_after_db", "denoise") if k in meta})
     with tab_text:
         st.code(tj.get("text", ""))
         st.success(tj.get("normalized_en", ""))
-        with st.expander(f"Segments + word times ({len(tj.get('segments', []))})"):
-            st.json(tj.get("segments", []))
+        if image:  # OCR lines: no timestamps / word times exist
+            with st.expander(f"OCR lines ({len(tj.get('segments', []))})"):
+                st.json([{"line": s.get("id"), "text": s.get("text"), "confidence": s.get("confidence"),
+                          "lang": s.get("lang")} for s in tj.get("segments", [])])
+        else:
+            with st.expander(f"Segments + word times ({len(tj.get('segments', []))})"):
+                st.json(tj.get("segments", []))
     with tab_ent:
         _entity_cards(ej)
+        if image:
+            with st.expander("Entities JSON (debug)"):
+                st.json(ej)
     with tab_note:
         # Editable discharge: left = field boxes prefilled with AI values,
         # right = re-rendered A4 preview. PDF/print is a snapshot of the
         # VERIFIED corrected note, never the primary surface.
         try:
             orig_key, edits_key, ver_key = f"{job_id}_orig", f"{job_id}_edits", f"{job_id}_verified"
+            audit_key = f"{job_id}_audit"  # image source only
             if orig_key not in st.session_state:
                 st.session_state[orig_key] = copy.deepcopy(ej)
                 st.session_state[edits_key] = {}
@@ -356,7 +405,10 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                     st.session_state[edits_key] = {k: v for k, v in {**saved_edits, **form_vals}.items()
                                                    if str(v) != str(ai_defaults.get(k, ""))}
                     if new_audit:
-                        _persist_corrected(job_id, patched, new_audit)
+                        if image:  # session-only audit trail, no disk writes
+                            st.session_state[audit_key] = st.session_state.get(audit_key, []) + new_audit
+                        else:
+                            _persist_corrected(job_id, patched, new_audit)
                         st.session_state[ver_key] = False  # new edits reset verification
                         st.success(f"Saved {len(new_audit)} correction(s). Review the preview, then Verify.")
                     else:
@@ -368,13 +420,16 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                 _d, r_cur = _slot_defaults(cur_ej, tj)
                 reds = [s for s in r_cur.get("slots", []) if s.get("color") == "RED"]
                 n_audit = 0
-                try:
-                    afp0 = os.path.join(_HERE, "entities", f"{job_id}.audit.json")
-                    if os.path.isfile(afp0):
-                        with open(afp0, encoding="utf-8") as f:
-                            n_audit = len(json.load(f))
-                except Exception:
-                    pass
+                if image:
+                    n_audit = len(st.session_state.get(audit_key, []))
+                else:
+                    try:
+                        afp0 = os.path.join(_HERE, "entities", f"{job_id}.audit.json")
+                        if os.path.isfile(afp0):
+                            with open(afp0, encoding="utf-8") as f:
+                                n_audit = len(json.load(f))
+                    except Exception:
+                        pass
                 st.caption(f"Audited corrections: {n_audit} | RED missing: {len(reds)}")
                 can_verify = n_audit > 0 and len(reds) == 0 and not st.session_state[ver_key]
                 if st.session_state[ver_key]:
@@ -399,15 +454,16 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                                            file_name=f"{job_id}.corrected.html", mime="text/html")
                         docx_bytes = prev.get("docx_bytes") if isinstance(prev, dict) else None
                         if docx_bytes:
-                            efp = os.path.join(_HERE, "exports", f"{job_id}.corrected.html")
-                            try:
-                                os.makedirs(os.path.dirname(efp), exist_ok=True)
-                                with open(efp, "w", encoding="utf-8") as f:
-                                    f.write(html)
-                                with open(os.path.join(_HERE, "exports", f"{job_id}.corrected.docx"), "wb") as f:
-                                    f.write(docx_bytes)
-                            except Exception as e:
-                                st.warning(f"persist skipped: {e}")
+                            if not image:  # image: in-memory download only
+                                efp = os.path.join(_HERE, "exports", f"{job_id}.corrected.html")
+                                try:
+                                    os.makedirs(os.path.dirname(efp), exist_ok=True)
+                                    with open(efp, "w", encoding="utf-8") as f:
+                                        f.write(html)
+                                    with open(os.path.join(_HERE, "exports", f"{job_id}.corrected.docx"), "wb") as f:
+                                        f.write(docx_bytes)
+                                except Exception as e:
+                                    st.warning(f"persist skipped: {e}")
                             st.download_button("Download CORRECTED DOCX (verified)", docx_bytes,
                                                file_name=f"{job_id}.corrected.docx")
                     else:
@@ -416,17 +472,26 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                     st.warning(f"preview skipped: {e}")
             with st.expander("Show Source links"):
                 for s in tj.get("segments", []):
-                    st.write(f"seg {s.get('id')} [{s.get('start')}-{s.get('end')}s] : {s.get('text')}")
-            with st.expander("Audit trail (AI vs human)"):
-                try:
-                    afp1 = os.path.join(_HERE, "entities", f"{job_id}.audit.json")
-                    if os.path.isfile(afp1):
-                        with open(afp1, encoding="utf-8") as f:
-                            st.json(json.load(f))
+                    if image:
+                        st.write(f"OCR line {s.get('id')} : {s.get('text')}")
                     else:
-                        st.caption("No corrections audited yet.")
-                except Exception as e:
-                    st.warning(f"audit read failed: {e}")
+                        st.write(f"seg {s.get('id')} [{s.get('start')}-{s.get('end')}s] : {s.get('text')}")
+            with st.expander("Audit trail (AI vs human)"):
+                if image:
+                    if st.session_state.get(audit_key):
+                        st.json(st.session_state[audit_key])
+                    else:
+                        st.caption("No corrections audited yet (kept in this session only).")
+                else:
+                    try:
+                        afp1 = os.path.join(_HERE, "entities", f"{job_id}.audit.json")
+                        if os.path.isfile(afp1):
+                            with open(afp1, encoding="utf-8") as f:
+                                st.json(json.load(f))
+                        else:
+                            st.caption("No corrections audited yet.")
+                    except Exception as e:
+                        st.warning(f"audit read failed: {e}")
         except Exception as e:
             st.warning(f"preview skipped: {e}")
 
@@ -442,38 +507,48 @@ def _ocr_segments(ocr):
             for ln in ocr.get("lines", [])]
 
 
-def _image_text_extract(ocr, upload_name):
+def _image_job_id(upload_name, content):
+    """img-<safe-stem>-<sha8>: same filename + different content -> different job/state."""
+    stem = re.sub(r"[^A-Za-z0-9_-]", "_", os.path.splitext(upload_name)[0])[:12]
+    return f"img-{stem}-{hashlib.sha256(content).hexdigest()[:8]}"
+
+
+def _image_text_extract(ocr, job_id):
     """Raw OCR text -> run_text_extract(source="image", regex only). Returns (tj, ej)."""
-    stem = os.path.splitext(upload_name)[0][:12].replace(" ", "_")
-    return run_text_extract(ocr["text"], _ocr_segments(ocr), job_id=f"img-{stem}",
+    return run_text_extract(ocr["text"], _ocr_segments(ocr), job_id=job_id,
                             use_llm=False, engine=ocr.get("engine", "easyocr"), source="image")
 
 
 def _image_ocr_view():
-    """Image source: upload -> preview -> EasyOCR -> raw text -> normalize -> regex extract.
+    """Image source: upload -> EasyOCR -> raw text -> normalize -> regex extract -> discharge note.
 
-    Raw OCR text is shown verbatim. Normalize/extract run with source="image"
-    (no Ollama, no speech-mishear rules, no fuzzy drug match, OCR lines are
-    boundaries). Not yet sent to fill_template / discharge note.
+    Raw OCR text stays visible above the tabs. Normalize/extract run with
+    source="image" (no Ollama, no speech-mishear rules, no fuzzy drug match,
+    OCR lines are boundaries). The note reuses _show_result(source="image"):
+    corrections, audit, verify and downloads stay in session state; nothing is
+    written to transcripts/, entities/ or exports/.
     """
     with st.sidebar:
         up = st.file_uploader("Drop .png/.jpg/.jpeg", type=[e.lstrip(".") for e in OCR_EXTS])
         run_btn = st.button("▶ Run OCR", type="primary", use_container_width=True)
-        st.caption("Image → EasyOCR → raw text → normalize → regex extract (no LLM). Not yet connected to the discharge note.")
+        st.caption("Image → EasyOCR → raw text → normalize → regex extract (no LLM) → discharge note. "
+                   "Nothing is saved to disk; downloads are generated in memory.")
 
     if up is None:
         st.info("Upload a PNG/JPG/JPEG image in the sidebar and press ▶ Run OCR.")
         return
 
+    content = up.getvalue()
+    job_id = _image_job_id(up.name, content)
     col_img, col_txt = st.columns([1, 1.2])
     with col_img:
         st.markdown("**Uploaded image**")
         try:
-            st.image(up.getvalue(), caption=up.name)
+            st.image(content, caption=up.name)
         except Exception as e:
             st.warning(f"Preview unavailable ({type(e).__name__}); OCR will still report whether the file is readable.")
 
-    res_key = f"ocr_{up.name}_{up.size}"
+    res_key = f"ocr_{job_id}"
     if run_btn:
         ext = os.path.splitext(up.name)[1].lower()
         tmp_fd, tmp_img = tempfile.mkstemp(prefix="medibytes_ocr_", suffix=ext)
@@ -496,7 +571,10 @@ def _image_ocr_view():
         x = None
         if r.get("success"):
             try:
-                x = _image_text_extract(r, up.name)
+                tj, ej = _image_text_extract(r, job_id)
+                # AI-original note (before any human correction), rendered in memory
+                ai = fill_template(copy.deepcopy(ej), tj)
+                x = (tj, ej, ai["html"] if isinstance(ai, dict) else ai)
             except Exception as e:
                 x = {"error": f"{type(e).__name__}: {e}"}
         st.session_state[res_key + "_x"] = x
@@ -519,38 +597,21 @@ def _image_ocr_view():
                    f"{len(r.get('blocks', []))} blocks | lowest confidence {low:.2f}")
         st.markdown("**Raw OCR text** (verbatim, uncorrected — verify against the image)")
         st.code(r.get("text", ""), language=None)
-        with st.expander("Per-line confidence"):
-            st.dataframe([{"line": ln["line"], "min_confidence": ln["min_confidence"],
-                           "blocks": ln["block_count"], "text": ln["text"]} for ln in lines],
-                         use_container_width=True, hide_index=True)
-        with st.expander("Full OCR result (JSON)"):
-            st.json(r)
 
-        # ---- normalize + regex extract (source="image"); no discharge note yet ----
-        st.divider()
-        x = st.session_state.get(res_key + "_x")
-        if x is None:
-            return
-        if isinstance(x, dict) and "error" in x:
-            st.error("Text extraction failed (raw OCR above is unaffected)")
-            st.code(x["error"], language=None)
-            return
-        tj, ej = x
-        st.markdown("**Normalized text** (deterministic rules only; regex extraction, no LLM)")
-        st.code(tj.get("normalized_en", ""), language=None)
-        norms = tj.get("normalizations", [])
-        st.caption("Normalizations: " + (", ".join(f"{n['from']} → {n['to']}" for n in norms)
-                                         if norms else "none"))
-        counts = {k: len(ej.get(k, []) or []) for k in ("drugs", "symptoms", "vitals", "allergies")}
-        st.caption("Extracted: " + " | ".join(f"{k} {v}" for k, v in counts.items())
-                   + f" | diagnosis {'yes' if ej.get('diagnosis') else 'no'}"
-                   + f" | follow-up {'yes' if ej.get('followup') else 'no'}"
-                   + f" | engine {ej.get('llm_engine', '')}")
-        with st.expander("Extracted entities (debug JSON)"):
-            st.json(ej)
-        with st.expander("Transcript JSON (debug)"):
-            st.json(tj)
-        st.caption("Not yet connected to the discharge note. Verify every value against the image.")
+    # ---- normalize + regex extract (source="image") -> shared result tabs + note ----
+    x = st.session_state.get(res_key + "_x")
+    if x is None:
+        return
+    if isinstance(x, dict) and "error" in x:
+        st.error("Text extraction failed (raw OCR above is unaffected)")
+        st.code(x["error"], language=None)
+        return
+    tj, ej, ai_html = x
+    st.caption(f"Extraction engine: {ej.get('llm_engine', '')}. Missing values stay NIL/RED — "
+               "verify every value against the image. Template wording ('heard', seg 0.0-0.0s) "
+               "is audio-derived and refers to OCR lines here.")
+    _show_result(job_id, tj, ej, None, prebuilt_html=ai_html,
+                 source="image", image_bytes=content, ocr=r)
 
 
 def main():

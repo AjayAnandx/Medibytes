@@ -535,25 +535,61 @@ def _image_job_id(upload_name, content):
     return f"img-{stem}-{hashlib.sha256(content).hexdigest()[:8]}"
 
 
-def _image_text_extract(ocr, job_id):
-    """Raw OCR text -> run_text_extract(source="image", regex only). Returns (tj, ej)."""
+def _image_text_extract(ocr, job_id, use_llm=False, ollama_model="llama3.2:3b"):
+    """Raw OCR text -> run_text_extract(source="image").
+
+    use_llm=True runs the LLM judge+eval (local Ollama only, gap-fill with
+    verbatim proof, regex fallback); False stays regex-only. Returns (tj, ej).
+    """
     return run_text_extract(ocr["text"], _ocr_segments(ocr), job_id=job_id,
-                            use_llm=False, engine=ocr.get("engine", "easyocr"), source="image")
+                            use_llm=use_llm, ollama_model=ollama_model,
+                            engine=ocr.get("engine", "easyocr"), source="image")
+
+
+def _ai_eval_panel(ej):
+    """Image-source AI eval: per-field PASS / MISSING / UNPROVEN table."""
+    ev = (ej or {}).get("ai_eval")
+    if not ev:
+        return
+    sm = ev.get("summary", {})
+    st.markdown(f"**AI eval** (`{ev.get('engine', '')}`) — "
+                f"✅ PASS {sm.get('pass', 0)} · "
+                f"🟥 MISSING {sm.get('missing', 0)} · "
+                f"🟨 UNPROVEN {sm.get('unproven', 0)}")
+    st.caption("Gap-filled values are YELLOW — verify each against the image. "
+               "UNPROVEN = no verbatim OCR line supports the value.")
+    rows = [{"field": f.get("field"), "status": f.get("status"),
+             "value": f.get("value"), "evidence (OCR line)": f.get("evidence_line"),
+             "conf": f.get("confidence"), "note": f.get("note", "")}
+            for f in ev.get("fields", [])]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+    with st.expander("AI eval JSON (debug)"):
+        st.json(ev)
 
 
 def _image_ocr_view():
-    """Image source: upload -> EasyOCR -> raw text -> normalize -> regex extract -> discharge note.
+    """Image source: upload -> EasyOCR -> raw text -> normalize -> regex + LLM judge/eval.
 
     Raw OCR text stays visible above the tabs. Normalize/extract run with
-    source="image" (no Ollama, no speech-mishear rules, no fuzzy drug match,
-    OCR lines are boundaries). The note reuses _show_result(source="image"):
-    corrections, audit, verify and downloads stay in session state; nothing is
-    written to transcripts/, entities/ or exports/.
+    source="image" (no speech-mishear rules, no fuzzy drug match, OCR lines
+    are boundaries). With "LLM eval" on, extracted text goes through the local
+    Ollama judge (ocr_llm_judge): gap-fill of missing fields with verbatim
+    proof + per-field PASS/MISSING/UNPROVEN eval; any LLM failure falls back
+    to regex-only. The note reuses _show_result(source="image"): corrections,
+    audit, verify and downloads stay in session state; nothing is written to
+    transcripts/, entities/ or exports/.
     """
     with st.sidebar:
         up = st.file_uploader("Drop .png/.jpg/.jpeg", type=[e.lstrip(".") for e in OCR_EXTS])
+        ocr_ollama_model = st.selectbox("Ollama model", OLLAMA_MODELS, index=0, key="ocr_ollama_model")
+        ocr_ollama_ok, ocr_ollama_reason = _ollama_available(ocr_ollama_model)
+        if ocr_ollama_ok:
+            st.markdown(f"🟢 **Ollama ready** — {ocr_ollama_model}")
+        else:
+            st.markdown(f"🔴 **Ollama unavailable** — {ocr_ollama_reason}")
+        ocr_use_llm = st.checkbox("LLM eval (local Ollama, regex fallback)", value=True, key="ocr_use_llm")
         run_btn = st.button("▶ Run OCR", type="primary", use_container_width=True)
-        st.caption("Image → EasyOCR → raw text → normalize → regex extract (no LLM) → discharge note. "
+        st.caption("Image → EasyOCR → raw text → normalize → regex + LLM judge/eval → discharge note. "
                    "Nothing is saved to disk; downloads are generated in memory.")
 
     if up is None:
@@ -593,7 +629,9 @@ def _image_ocr_view():
         x = None
         if r.get("success"):
             try:
-                tj, ej = _image_text_extract(r, job_id)
+                with st.spinner("Extracting fields (regex + LLM judge)…"):
+                    tj, ej = _image_text_extract(r, job_id, use_llm=ocr_use_llm,
+                                                 ollama_model=ocr_ollama_model)
                 # AI-original note (before any human correction), rendered in memory
                 ai = fill_template(copy.deepcopy(ej), tj)
                 x = (tj, ej, ai["html"] if isinstance(ai, dict) else ai)
@@ -620,7 +658,7 @@ def _image_ocr_view():
         st.markdown("**Raw OCR text** (verbatim, uncorrected — verify against the image)")
         st.code(r.get("text", ""), language=None)
 
-    # ---- normalize + regex extract (source="image") -> shared result tabs + note ----
+    # ---- normalize + regex/LLM extract (source="image") -> shared result tabs + note ----
     x = st.session_state.get(res_key + "_x")
     if x is None:
         return
@@ -632,6 +670,7 @@ def _image_ocr_view():
     st.caption(f"Extraction engine: {ej.get('llm_engine', '')}. Missing values stay NIL/RED — "
                "verify every value against the image. Template wording ('heard', seg 0.0-0.0s) "
                "is audio-derived and refers to OCR lines here.")
+    _ai_eval_panel(ej)
     _show_result(job_id, tj, ej, None, prebuilt_html=ai_html,
                  source="image", image_bytes=content, ocr=r)
 

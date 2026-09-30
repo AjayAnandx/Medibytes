@@ -496,19 +496,32 @@ def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
     """Stages 3-4 on already-transcribed text: normalize -> tag -> extract.
 
     Shared post-text path for audio STT and image OCR.
-    source="image": regex only (Ollama never runs, whatever use_llm says), no
-    speech-mishear normalization, no fuzzy drug match, OCR lines are boundaries.
+    source="image": no speech-mishear normalization, no fuzzy drug match, OCR
+    lines are boundaries. use_llm=True/"auto" runs the image LLM judge+eval
+    (ocr_llm_judge, local Ollama only, gap-fill with verbatim proof); any LLM
+    failure falls back to regex-only. Audio path is unchanged.
     `segments` lang tags are refreshed in place, as before.
-    Returns (transcript_json, entities_json).
+    Returns (transcript_json, entities_json). entities_json carries "ai_eval"
+    (per-field PASS/MISSING/UNPROVEN) when the image LLM path ran.
     """
-    if source == "image":
-        use_llm = False  # OCR text is never sent to an LLM in this phase
     norm = normalize_text(text, source=source)
     # refresh segment lang tags with demo LID
     for s in segments:
         s["lang"] = detect_lang_tag(s["text"]) if len(s["text"]) < 200 else norm["lang_tag"]
-    ent, llm_reason = None, ""
-    if use_llm in (True, "auto"):
+    ent, llm_reason, ai_eval = None, "", None
+    if source == "image" and use_llm in (True, "auto"):
+        try:
+            from ocr_llm_judge import run_image_llm_eval
+            from llm_extract import ollama_available
+            ok, why = ollama_available(ollama_model)
+            if ok or use_llm is True:
+                base = extract_entities(text, norm["normalized_en"], segments, source=source)
+                ent, ai_eval = run_image_llm_eval(base, text, segments, model=ollama_model)
+            else:
+                llm_reason = why
+        except ValueError as e:
+            ent, llm_reason, ai_eval = None, str(e), None
+    elif use_llm in (True, "auto"):
         try:
             from llm_extract import extract_llm_primary, merge_primary, ollama_available
             ok, why = ollama_available(ollama_model)
@@ -522,7 +535,7 @@ def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
             ent, llm_reason = None, str(e)
     if ent is None:
         ent = extract_entities(text, norm["normalized_en"], segments, source=source)
-        if use_llm is True:
+        if use_llm is True and source != "image":
             ent = ollama_tidy(ent, norm["normalized_en"], model=ollama_model)
         elif use_llm == "auto" and llm_reason:
             ent["llm_engine"] = f"regex-fallback ({llm_reason})"
@@ -531,8 +544,12 @@ def run_text_extract(text, segments, job_id="demo-001", use_llm="auto",
                        "normalizations": norm["normalizations"], "stt_engine": engine}
     if source == "image":  # audio output shape stays byte-identical
         transcript_json["source"] = "image"
-        ent["llm_engine"] = "regex-only (image source)"
+        if ai_eval is None:
+            ent["llm_engine"] = ("regex-only (image source)" if not llm_reason
+                                 else f"regex-only (image source, {llm_reason})")
     entities_json = {"job_id": job_id, **ent}
+    if ai_eval is not None:
+        entities_json["ai_eval"] = ai_eval
     return transcript_json, entities_json
 
 

@@ -166,6 +166,14 @@ Main tabs: **Audio** (raw vs cleaned + waveforms) · **Transcript** (raw +
 normalized + segments) · **Entities** (color proof cards + negations) ·
 **Discharge note** (editable field boxes + A4 preview + Verify gate + downloads).
 
+Sidebar → Input source **Image**: drop a `.png/.jpg/.jpeg` → ▶ Run OCR →
+EasyOCR verbatim text → regex base + **LLM judge/eval** (local Ollama only,
+`demo/ocr_llm_judge.py`). The LLM gap-fills fields regex left `NIL/RED`
+(verbatim OCR proof required, flagged YELLOW) and scores every discharge
+field **PASS / MISSING / UNPROVEN** in the AI eval panel. Any LLM failure
+falls back to regex-only. Image runs are session-only (nothing written to
+`transcripts/`, `entities/` or `exports/`).
+
 ### CLI pipeline (Stages 0→5, no UI)
 
 ```powershell

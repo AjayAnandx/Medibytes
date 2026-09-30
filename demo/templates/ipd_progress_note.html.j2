@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MediBytes IPD Progress Note — v{{ doc.version }}</title>
+<style>
+  :root { --ink:#1f2937; --muted:#6b7280; --line:#d1d5db; --bg:#ffffff;
+          --green:#047857; --green-bg:#ecfdf5; --yellow:#92400e; --yellow-bg:#fffbeb;
+          --red:#b91c1c; --red-bg:#fef2f2; --nil:#4b5563; --nil-bg:#f3f4f6; }
+  body { font-family: Arial, Helvetica, sans-serif; color: var(--ink); background: var(--bg);
+         max-width: 900px; margin: 24px auto; padding: 0 16px; line-height: 1.45; font-size: 14px; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  h2 { font-size: 16px; margin: 22px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  .banner { padding: 10px 14px; border-radius: 6px; font-weight: bold; margin: 8px 0; border: 2px solid; }
+  .banner.draft { color: var(--red); background: var(--red-bg); border-color: var(--red); }
+  .banner.approved { color: var(--green); background: var(--green-bg); border-color: var(--green); }
+  .banner.stale, .banner.review { color: var(--yellow); background: var(--yellow-bg); border-color: var(--yellow); }
+  table.meta { border-collapse: collapse; width: 100%; }
+  table.meta th, table.meta td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line);
+                                 vertical-align: top; }
+  table.meta th { width: 190px; color: var(--muted); font-weight: normal; }
+  .na { color: var(--muted); font-style: italic; }
+  .section { margin: 10px 0 16px; }
+  .section h3 { font-size: 15px; margin: 0 0 6px; }
+  .req { font-size: 11px; color: var(--muted); font-weight: normal; }
+  ul.lines { list-style: none; padding: 0; margin: 0; }
+  ul.lines li { padding: 6px 10px; margin: 4px 0; border-left: 5px solid var(--line); border-radius: 3px; }
+  li.GREEN { border-color: var(--green); background: var(--green-bg); }
+  li.YELLOW { border-color: #d97706; background: var(--yellow-bg); }
+  li.RED { border-color: var(--red); background: var(--red-bg); }
+  li.NIL { border-color: #9ca3af; background: var(--nil-bg); }
+  .badge { display: inline-block; font-size: 11px; font-weight: bold; padding: 0 6px; border-radius: 3px;
+           margin-right: 6px; border: 1px solid currentColor; }
+  .badge.GREEN { color: var(--green); } .badge.YELLOW { color: var(--yellow); }
+  .badge.RED { color: var(--red); } .badge.NIL { color: var(--nil); }
+  .flag { color: var(--red); font-weight: bold; font-size: 12px; margin-left: 6px; }
+  .placeholder { font-style: italic; }
+  table.trace { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.trace th, table.trace td { border: 1px solid var(--line); padding: 4px 6px; text-align: left;
+                                   vertical-align: top; }
+  table.trace th { background: #f9fafb; }
+  code { font-size: 11px; word-break: break-all; }
+  .legend, .footer { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>MediBytes IPD Progress Note</h1>
+
+{% if doc.approved %}
+<div class="banner approved">APPROVED — by {{ doc.approved_by }} ({{ doc.approved_role }}) at {{ doc.approved_at }}</div>
+{% else %}
+<div class="banner draft">DRAFT — NOT APPROVED FOR CLINICAL USE</div>
+{% endif %}
+{% if doc.stale %}
+<div class="banner stale">STALE — REGENERATION REQUIRED{% if doc.stale_reasons %}: {{ doc.stale_reasons | join("; ") }}{% endif %}</div>
+{% endif %}
+{% if doc.needs_review %}
+<div class="banner review">CLINICIAN REVIEW REQUIRED — conflicting values are shown below and have not been resolved</div>
+{% endif %}
+
+<h2>Patient</h2>
+<table class="meta">
+  {% for label, value in patient %}
+  <tr><th>{{ label }}</th><td>{% if value %}{{ value }}{% else %}<span class="na">Not available</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Encounter</h2>
+<table class="meta">
+  {% for label, value in encounter %}
+  <tr><th>{{ label }}</th><td>{% if value %}{{ value }}{% else %}<span class="na">Not available</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Document</h2>
+<table class="meta">
+  {% for label, value in document %}
+  <tr><th>{{ label }}</th><td>{% if value %}{{ value }}{% else %}<span class="na">Not available</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+
+<h2>SOAP Note</h2>
+<p class="legend">GREEN = verified · YELLOW = unverified, verify against source · RED = required information missing · NIL = nothing captured (optional section)</p>
+{% for s in sections %}
+<div class="section">
+  <h3>{{ s.key }} — {{ s.title }}{% if s.required %} <span class="req">(required)</span>{% endif %}</h3>
+  <ul class="lines">
+    {% for l in s.lines %}
+    <li class="{{ l.color }}"><span class="badge {{ l.color }}">{{ l.color }}</span><span class="{% if l.kind == 'placeholder' %}placeholder{% endif %}">{{ l.text }}</span>{% if l.needs_review %}<span class="flag">⚠ REVIEW REQUIRED{% if l.review_reason %} — {{ l.review_reason }}{% endif %}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
+<h2>Clinical Traceability / Source Events</h2>
+<table class="trace">
+  <tr><th>Section</th><th>Line</th><th>Source event(s)</th><th>Source type</th><th>Capture</th></tr>
+  {% for t in trace %}
+  <tr>
+    <td>{{ t.section }}</td>
+    <td>{{ t.text }}</td>
+    {% if t.placeholder %}
+    <td colspan="3"><span class="na">Placeholder — no clinical source event</span></td>
+    {% else %}
+    <td>{% for s in t.sources %}<code>{{ s.event_id }}</code>{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+    <td>{% for s in t.sources %}{{ s.source_type }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+    <td>{% for s in t.sources %}{{ s.capture }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+    {% endif %}
+  </tr>
+  {% endfor %}
+</table>
+
+<p class="footer">Rendered from stored document version {{ doc.version }} ({{ doc.change_type }}). Generator: {{ doc.generator }}.
+This page is a view of the stored version; it does not change clinical records.</p>
+</body>
+</html>

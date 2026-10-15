@@ -30,9 +30,12 @@ sys.path.insert(0, _HERE)
 
 from llm_extract import (  # same-package reuse; audio path untouched
     _extract_json_from_output,
+    _gapfill_structured_vitals,
     _llm_vitals_kind,
     _regex_vitals_slots,
     _valid_drug,
+    mark_ai_field,
+    mark_ai_item,
     ollama_available,
 )
 
@@ -193,8 +196,10 @@ def extract_llm_image(ocr_text, lines, segments, model="llama3.2:3b", timeout=12
             return re.findall(r"\d+(?:\.\d+)?", str(s))
 
         if v.get("sys") and v.get("dia"):
-            ds, dd = _digits(v["sys"]), _digits(v["dia"])
-            if ds and dd and ds[0] in full and dd[0] in full:
+            # exact reading with a BP label in the source; digits inside a
+            # date ("05/05/2023") or elsewhere never count
+            from coords import bp_supported
+            if bp_supported(v["sys"], v["dia"], full):
                 vitals.append({"text": f"BP {v['sys']}/{v['dia']}", "confidence": 0.88,
                                "color": "YELLOW", "source_sentence": "",
                                "note": "llm-image"})
@@ -212,7 +217,7 @@ def extract_llm_image(ocr_text, lines, segments, model="llama3.2:3b", timeout=12
         if cc and cc.lower() in full.lower():
             symptoms.append({"text": cc, "confidence": 0.9, "color": "YELLOW",
                              "source_sentence": "", "negated": False, "note": "llm-image"})
-        symptoms += [{"text": str(s), "confidence": 0.91, "color": "GREEN",
+        symptoms += [{"text": str(s), "confidence": 0.91, "color": "YELLOW",  # AI denial: verify
                       "source_sentence": "", "negated": True, "note": "DENIED - excluded"}
                      for s in (j.get("symptoms_denied", []) or [])
                      if str(s).lower() in full.lower()]
@@ -271,6 +276,7 @@ def merge_image(base_ent, llm_ent, ocr_text, model="llama3.2:3b"):
     full = ocr_text or ""
     merged = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v)
               for k, v in (base_ent or {}).items()}
+    merged["drugs"] = [dict(d) for d in merged.get("drugs", []) or []]  # never mutate the regex base
     names = [(str(d.get("name", "")).lower(), d) for d in merged.get("drugs", [])]
     for t in llm_ent.get("drugs", []) or []:
         tn = str(t.get("name", "")).lower()
@@ -292,9 +298,10 @@ def merge_image(base_ent, llm_ent, ocr_text, model="llama3.2:3b"):
                     elif not _verbatim(cand, full):
                         continue
                     best[k] = t[k]
+                    mark_ai_field(best, k)  # regex row stays; this field is AI
                     best["note"] = (str(best.get("note", "")) + " llm-image-gapfill").strip()
         else:
-            t = dict(t)
+            t = mark_ai_item(t)
             t["note"] = (t.get("note", "") + " llm-image-gapfill - verify spelling").strip()
             t["color"] = "YELLOW"
             merged.setdefault("drugs", []).append(t)
@@ -302,42 +309,46 @@ def merge_image(base_ent, llm_ent, ocr_text, model="llama3.2:3b"):
     for k in ("diagnosis", "followup"):
         if not merged.get(k) and llm_ent.get(k, {}).get("text") and \
                 _verbatim(llm_ent[k]["text"], full):
-            merged[k] = llm_ent[k]
+            merged[k] = mark_ai_item(llm_ent[k])
     if not merged.get("patient") and llm_ent.get("patient", {}).get("name") and \
             _verbatim(llm_ent["patient"]["name"], full):
-        merged["patient"] = llm_ent["patient"]
+        merged["patient"] = mark_ai_item(llm_ent["patient"])
     filled = _regex_vitals_slots(merged)
     for k in ("allergies", "symptoms"):
-        seen = {str(x.get("text", x.get("name", ""))).lower() for x in merged.get(k, [])}
+        # allergies keyed with negation (active vs denied are different facts)
+        key = (lambda x: (str(x.get("text", x.get("name", ""))).lower(), bool(x.get("negated")))) \
+            if k == "allergies" else (lambda x: str(x.get("text", x.get("name", ""))).lower())
+        seen = {key(x) for x in merged.get(k, [])}
         for x in llm_ent.get(k, []) or []:
             xt = str(x.get("text", x.get("name", "")))
-            if xt.lower() not in seen and _verbatim(xt, full):
-                merged.setdefault(k, []).append(x)
-                seen.add(xt.lower())
+            if key(x) not in seen and _verbatim(xt, full):
+                merged.setdefault(k, []).append(mark_ai_item(x))
+                seen.add(key(x))
+    llm_sv = dict(llm_ent.get("structured_vitals", {}) or {})
     seen_v = {str(x.get("text", x.get("name", ""))).lower() for x in merged.get("vitals", [])}
     for x in llm_ent.get("vitals", []) or []:
-        kind = _llm_vitals_kind(x)
+        kind = _llm_vitals_kind(x, llm_sv)
         if kind in filled and filled[kind]:
             continue
         xt = str(x.get("text", x.get("name", "")))
         if xt.lower() in seen_v or not _verbatim(xt, full):
             continue
-        merged.setdefault("vitals", []).append(x)
-    sv = dict(llm_ent.get("structured_vitals", {}) or {})
+        merged.setdefault("vitals", []).append(mark_ai_item(x))
+    # regex-filled slots are never overwritten; disagreements are recorded
+    sv, conflicts = _gapfill_structured_vitals(merged, llm_sv, filled)
+    # an AI reading is shown (even as a conflict) only if its digits are on the page
+    conflicts = [c for c in conflicts if re.findall(r"\d+(?:\.\d+)?", str(c.get("ai", ""))) and
+                 all(dg in full for dg in re.findall(r"\d+(?:\.\d+)?", str(c.get("ai", ""))))]
+    if conflicts:
+        merged["vitals_conflicts"] = conflicts
     if sv:
-        if filled["bp"]:
-            sv.pop("sys", None)
-            sv.pop("dia", None)
-        if filled["temp"]:
-            sv.pop("temp", None)
-        if filled["spo2"]:
-            sv.pop("spo2", None)
         for k in list(sv):
             if not re.findall(r"\d+(?:\.\d+)?", str(sv[k])) or \
                     not all(dg in full for dg in re.findall(r"\d+(?:\.\d+)?", str(sv[k]))):
                 sv.pop(k, None)
         if sv:
             merged["structured_vitals"] = {**(merged.get("structured_vitals", {}) or {}), **sv}
+            merged["structured_vitals_ai"] = sorted(set(merged.get("structured_vitals_ai") or []) | set(sv))
     merged["llm_engine"] = f"regex+llm-image:{model}"
     return merged
 
@@ -348,7 +359,7 @@ def _prompt_judge(slot_values, ocr_text, lines):
     flines = []
     for f, v in slot_values:
         cands = [str(n) for n, t in sorted(line_text.items())
-                 if _value_supported(v, t)][:4]
+                 if _value_supported(v, t, f)][:4]
         hint = f" [value text seen in lines: {', '.join(cands)}]" if cands else ""
         flines.append(f"- {f}: {v}{hint}")
     fields = "\n".join(flines)
@@ -369,11 +380,26 @@ def _prompt_judge(slot_values, ocr_text, lines):
     )
 
 
-def _value_supported(value, evidence):
-    """Slot value plausibly backed by the quoted evidence line."""
+def _value_supported(value, evidence, key=""):
+    """Slot value plausibly backed by the quoted evidence line.
+
+    BP slots need a BP-labelled reading on that line whose systolic/diastolic
+    equals the value - a date such as "05/05/2023" is never evidence.
+    """
+    if key in ("vitals_bp_sys", "vitals_bp_dia"):
+        from coords import bp_readings
+        i = 0 if key == "vitals_bp_sys" else 1
+        try:
+            val = float(str(value).strip())
+        except (TypeError, ValueError):
+            return False
+        return any(float(r[i]) == val for r in bp_readings(evidence))
     v, e = str(value).lower(), str(evidence).lower()
     if v in e:
         return True
+    if v.startswith("no known allergies"):  # note wording; the OCR line must state NKA
+        from stt_extract import NKA_PAT
+        return bool(NKA_PAT.search(str(evidence)))
     digs = re.findall(r"\d+(?:\.\d+)?", v)
     return bool(digs) and all(d in e for d in digs)
 
@@ -390,7 +416,7 @@ def judge_fields(slots, ocr_text, lines, model="llama3.2:3b", timeout=120):
     line_text = {ln.get("line"): str(ln.get("text", "")) for ln in (lines or [])}
     keys = [k for k in JUDGED_KEYS if k in by_key]
     missing = [k for k in keys
-               if not by_key[k].strip() or by_key[k].strip().upper().startswith("NIL")]
+               if not by_key[k].strip() or by_key[k].strip().upper().startswith(("NIL", "NOT DOCUMENTED"))]
     filled = [(k, by_key[k]) for k in keys if k not in missing]
     verdicts = {}
     if filled:
@@ -429,7 +455,7 @@ def judge_fields(slots, ocr_text, lines, model="llama3.2:3b", timeout=120):
         if k in missing:
             fields.append({"field": k, "status": "MISSING", "value": by_key[k],
                            "evidence_line": "", "line_no": -1, "confidence": 1.0,
-                           "note": "not found in OCR — confirm truly absent"})
+                           "note": "not extracted — check the image (absent or not recognised)"})
             continue
         v = verdicts.get(k, {})
         try:
@@ -445,7 +471,7 @@ def judge_fields(slots, ocr_text, lines, model="llama3.2:3b", timeout=120):
         except (TypeError, ValueError):
             conf = 0.85
         if (str(v.get("status", "")).upper() == "PASS" and ev and ev in full
-                and _value_supported(by_key[k], ev)):
+                and _value_supported(by_key[k], ev, k)):
             fields.append({"field": k, "status": "PASS", "value": by_key[k],
                            "evidence_line": ev, "line_no": lno,
                            "confidence": round(min(conf, 0.9), 2), "note": ""})
@@ -454,7 +480,7 @@ def judge_fields(slots, ocr_text, lines, model="llama3.2:3b", timeout=120):
             if v.get("status") == "MISSING":
                 note = "judge disagrees with extracted value — verify against the image"
             fields.append({"field": k, "status": "UNPROVEN", "value": by_key[k],
-                           "evidence_line": ev if ev and _value_supported(by_key[k], ev) else "",
+                           "evidence_line": ev if ev and _value_supported(by_key[k], ev, k) else "",
                            "line_no": lno,
                            "confidence": round(min(conf, 0.75), 2), "note": note})
     summary = {"pass": sum(1 for f in fields if f["status"] == "PASS"),

@@ -23,24 +23,50 @@ def _seg_of(source_sentence, segments):
     return None, ""
 
 
+class TemplateRenderError(RuntimeError):
+    """The discharge note could not be generated; callers must show this, not a document."""
+
+
 def fill_template(entities_json, transcript_json, template_id="er_discharge"):
+    """Render the discharge note: premium single-A4 slot layout + editable DOCX.
+
+    This is the only supported layout. There is NO silent fallback: a missing
+    spec/coords/template file, a slot or render error, or a render that drops
+    clinical slot values raises TemplateRenderError and returns no html/docx
+    (an empty or partial form must never look like a valid note).
+    """
+    tpl_dir = os.path.join(_HERE, "templates")
+    try:
+        with open(os.path.join(tpl_dir, f"{template_id}.json"), encoding="utf-8") as f:
+            spec = json.load(f)
+    except (OSError, ValueError) as e:
+        raise TemplateRenderError(f"discharge note NOT generated: template spec "
+                                  f"{template_id}.json unreadable ({e})") from e
+    if not os.path.isfile(os.path.join(tpl_dir, f"{template_id}.coords.json")):
+        raise TemplateRenderError(f"discharge note NOT generated: layout coords file "
+                                  f"{template_id}.coords.json is missing")
+    try:
+        return _fill_premium(spec, entities_json, transcript_json, template_id)
+    except TemplateRenderError:
+        raise
+    except Exception as e:
+        raise TemplateRenderError(f"discharge note NOT generated: {template_id} layout failed "
+                                  f"({type(e).__name__}: {e})") from e
+
+
+def _fill_classic(spec, entities_json, transcript_json):
+    """OBSOLETE classic layout (templates/er_discharge.html.j2) - not called.
+
+    Kept only for a separate cleanup decision. Unsafe as a fallback: it always
+    prints the diagnosis as NIL, shows "None extracted." for allergies (no
+    documented-NKA vs not-documented distinction, no conflict flags) and has no
+    follow-up, structured vitals or clinician corrections.
+    """
     from jinja2 import FileSystemLoader, Environment
 
     tpl_dir = os.path.join(_HERE, "templates")
-    with open(os.path.join(tpl_dir, f"{template_id}.json"), encoding="utf-8") as f:
-        spec = json.load(f)
-
-    # Premium path: coordinate slots (single A4 strictly). Falls back to classic below.
-    try:
-        from coords import resolve_slots
-        if os.path.isfile(os.path.join(tpl_dir, f"{template_id}.coords.json")):
-            return _fill_premium(spec, entities_json, transcript_json, template_id)
-    except Exception as e:
-        import sys
-        print(f"premium fill failed ({e}); classic fallback", file=sys.stderr)
-
     env = Environment(loader=FileSystemLoader(tpl_dir))
-    tpl = env.get_template(spec["layout"])
+    tpl = env.get_template("er_discharge.html.j2")
 
     ents = entities_json or {}
     segs = (transcript_json or {}).get("segments", [])
@@ -162,8 +188,18 @@ def _fill_premium(spec, entities_json, transcript_json, template_id):
            "slots": r["slots"], "denied": r["denied"],
            "proof_lines": r["proof_lines"], "hpi_bg": r["hpi_bg"]}
     html = tpl.render(**ctx)
-    docx_bytes = _docx_word_editable(ctx)
-    return {"html": html, "docx_bytes": docx_bytes, "preview_data": ctx}
+    # the rendered note must actually show every resolved value (allergies,
+    # drugs, vitals, diagnosis...); a layout that drops them is not a note
+    lost = [s["key"] for s in r["slots"] if str(s.get("text", "")) not in html]
+    if not r["slots"] or lost:
+        raise TemplateRenderError("discharge note NOT generated: layout "
+                                  f"{spec['layout']} is missing clinical fields {lost or 'all'}")
+    docx_error = None
+    try:
+        docx_bytes = _docx_word_editable(ctx)
+    except Exception as e:  # HTML is complete; report the DOCX failure, never fake it
+        docx_bytes, docx_error = None, f"{type(e).__name__}: {e}"
+    return {"html": html, "docx_bytes": docx_bytes, "preview_data": ctx, "docx_error": docx_error}
 
 
 def _docx_word_editable(ctx):

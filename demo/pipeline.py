@@ -18,7 +18,7 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from audio_clean import clean_audio
-from stt_extract import run_stt_extract
+from stt_extract import TranscriptionError, run_stt_extract
 
 
 def _idempotency_get_or_create(key, state_path):
@@ -91,11 +91,19 @@ def main():
     except ValueError as e:
         print(f"[{job_id}] {e}", file=sys.stderr)
         return 3
-    print(f"[1] cleaned -> {cleaned} vad={meta['vad_ratio']} snr {meta['snr_before_db']}->{meta['snr_after_db']}dB")
+    print(f"[1] cleaned -> {cleaned} vad={meta.get('vad_ratio')} "
+          f"input level {meta.get('input_rms_dbfs')} dBFS rms / {meta.get('input_peak_dbfs')} dBFS peak, "
+          f"clipped={meta.get('input_clipped_ratio')} denoise={meta.get('denoise')}")
 
     mode = False if a.no_llm else (True if a.use_llm else "auto")
-    transcript_json, entities_json = run_stt_extract(cleaned, job_id, use_llm=mode, model=a.model)
+    try:
+        transcript_json, entities_json = run_stt_extract(cleaned, job_id, use_llm=mode, model=a.model)
+    except TranscriptionError as e:  # never write a transcript/entities/note for failed STT
+        print(f"[{job_id}] {e}", file=sys.stderr)
+        return 4
     print(f"[2] STT engine={transcript_json['stt_engine']} lang={transcript_json['language']}")
+    if str(transcript_json["stt_engine"]).startswith("mock"):
+        print("[2] SYNTHETIC transcript: built-in demo script, not this audio (--model mock)")
     print(f"[3] normalized: {transcript_json['normalized_en'][:100]}")
     print(f"[4] drugs={len(entities_json['drugs'])} symptoms={len(entities_json['symptoms'])} "
           f"vitals={len(entities_json['vitals'])} allergies={len(entities_json['allergies'])}")
@@ -123,8 +131,12 @@ def main():
                 with open(d_path, "wb") as f:
                     f.write(out["docx_bytes"])
                 print(f"[5] docx -> {d_path}")
-        except Exception as e:
-            print(f"[5] template skipped: {e}", file=sys.stderr)
+            elif out.get("docx_error"):
+                print(f"[5] WARNING: DOCX not generated ({out['docx_error']})", file=sys.stderr)
+        except Exception as e:  # no partial/empty note is written
+            msg = str(e) if "NOT generated" in str(e) else f"discharge note NOT generated: {e}"
+            print(f"[5] ERROR: {msg}", file=sys.stderr)
+            return 5
     return 0
 
 

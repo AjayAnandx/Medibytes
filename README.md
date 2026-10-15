@@ -75,7 +75,6 @@ Streamlit iframe (it scales the A4 page).
 medibytes project/
   README.md                      # this file
   run_demo.py                    # ONE-COMMAND entry point (install + warm cache + UI)
-  DEMO_CODE_AND_MODELS.md        # deep-dive: code, models, schemas, narration
   demo scripts/                  # real test audios (.mp3 examples)
   docs/                          # architecture reports (production plan, HMS, edge cases)
   demo/
@@ -125,7 +124,7 @@ medibytes project/
 # 1) Python deps (from the project root)
 python -m pip install -r demo/requirements-demo.txt
 
-# 2) Test deps (for the golden numeral tests)
+# 2) Test deps (only needed to run demo/tests, not the app)
 python -m pip install pytest
 
 # 3) Ollama model (optional — pipeline falls back to regex-only without it)
@@ -200,6 +199,8 @@ python demo/pipeline.py --in "YOUR_FILE.mp3" --key my-003 --model tiny-int8 --te
 
 ```powershell
 python -m pytest demo/tests/test_numerals.py -q
+# full suite (ER, OCR, IPD and regression tests):
+python -m pytest demo/tests -q
 ```
 
 Pins: `101 degree` temp with no invented BP · `BP 130 by 80` split ·
@@ -210,13 +211,13 @@ live two-drug + `122 of 78` + `100.4°F` + `99%` · generic allergy candidate.
 
 | File | Contents |
 |------|----------|
-| `demo/cleaned/{job}.wav` + `.meta.json` | 16k mono audio + `duration_s, vad_ratio, snr, denoise` |
+| `demo/cleaned/{job}.wav` + `.meta.json` | 16k mono audio + `duration_s, vad_ratio, input_rms_dbfs, input_peak_dbfs, input_clipped_ratio, denoise` (level measurements only — no SNR is measured) |
 | `demo/transcripts/{job}.json` | `text, language, segments[] (word times), normalized_en, stt_engine` |
 | `demo/entities/{job}.entities.json` | `drugs[], symptoms[], vitals[], allergies[], negations[], diagnosis, followup, llm_engine` |
 | `demo/entities/{job}.corrected.entities.json` | human-corrected entities (after Apply) |
 | `demo/entities/{job}.audit.json` | per-slot `original_ai → human_corrected` trail |
 | `demo/exports/{job}.html` / `.docx` | AI-original note |
-| `demo/exports/{job}.corrected.html` / `.docx` | verified corrected note |
+| `demo/exports/{job}.corrected.html` / `.docx` (+ `.corrected.verified.json`) | verified corrected note — present only while it matches the current verified note; outdated copies are moved (kept) to `{job}.corrected.superseded-<time>-<fingerprint>.*` |
 
 ---
 

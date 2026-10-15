@@ -12,6 +12,7 @@ import sys
 import tempfile
 import subprocess
 import shutil
+import uuid
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -25,8 +26,8 @@ except Exception:
     HAS_PLOT = False
 
 from audio_clean import _load_mono_float, clean_audio
-from stt_extract import run_stt_extract, run_text_extract
-from fill_template import fill_template
+from stt_extract import TranscriptionError, run_stt_extract, run_text_extract
+from fill_template import TemplateRenderError, fill_template
 from ocr_extract import SUPPORTED_EXTS as OCR_EXTS, extract_text_from_image  # easyocr loads lazily
 
 COLOR = {"GREEN": "#10B981", "YELLOW": "#F59E0B", "RED": "#EF4444", "DENIED": "#9CA3AF"}
@@ -101,14 +102,21 @@ def _entity_cards(ej):
             continue
         st.markdown(f"**{grp.capitalize()} ({len(items)})**")
         for item in items:
+            if not isinstance(item, dict):
+                item = {"text": str(item), "ai_suggested": True}
             c = item.get("color", "YELLOW")
             neg = " [NEGATED]" if item.get("negated") else ""
+            # AI provenance: unreviewed AI values are never shown as GREEN
+            ai_f = ["all fields"] if item.get("ai_suggested") else list(item.get("ai_fields") or [])
+            if ai_f and c == "GREEN":
+                c = "YELLOW"
+            ai_txt = f"<br><b>AI-suggested - verify:</b> {', '.join(ai_f)}" if ai_f else ""
             st.markdown(
                 f"<div style='border-left:6px solid {COLOR.get(c, '#999')};padding:8px;margin:6px 0'>"
                 f"<b>{grp[:-1]} {c}</b>{neg} - {item.get('name') or item.get('text')} "
                 f"{item.get('dose', '')} {item.get('unit', '')} {item.get('frequency', '')} "
                 f"{item.get('duration', '')} ({item.get('confidence', '?')})<br>"
-                f"<i>Heard:</i> {item.get('source_sentence', '')}"
+                f"<i>Heard:</i> {item.get('source_sentence', '')}{ai_txt}"
                 f"{('<br><small>' + item.get('note', '') + '</small>') if item.get('note') else ''}</div>",
                 unsafe_allow_html=True,
             )
@@ -155,6 +163,19 @@ def _slot_defaults(ej, tj):
         return {}, {"slots": [], "denied": [], "proof_lines": []}
 
 
+def _multi_readings_warning(resolved, image=False):
+    """List every different reading of a vital the compact box cannot show."""
+    labels = {"bp": "BP", "temp": "temperature", "spo2": "SpO2"}
+    where = "OCR line" if image else "heard"
+    for kind, rs in (resolved.get("multiple_vital_readings") or {}).items():
+        lines = [f"- **{r['value']}**" + (f" ×{r['count']}" if r.get("count", 1) > 1 else "")
+                 + "".join(f" — {where}: \"{s}\"" for s in r.get("sources", []))
+                 for r in rs]
+        st.warning(f"Multiple {labels.get(kind, kind)} readings — verify. No reading was chosen "
+                   f"automatically; the note box shows the last one mentioned. Enter the correct "
+                   f"value(s) in the form to resolve.\n\n" + "\n".join(lines))
+
+
 def _parse_dose(raw):
     raw = (raw or "").strip()
     if raw.upper().startswith("NIL") or raw == "":
@@ -190,6 +211,7 @@ def _apply_edits(orig_ej, edits, defaults=None):
         _record("patient_name", "patient.name", pt.get("name", ""), new)
         pt["name"] = new
         pt["color"] = "YELLOW"
+        pt.pop("ai_suggested", None)  # clinician-entered, no longer an AI suggestion
 
     # chief complaint -> first non-negated symptom
     if "cc_blank" in edits:
@@ -202,6 +224,7 @@ def _apply_edits(orig_ej, edits, defaults=None):
         _record("cc_blank", "symptoms[0].text", tgt.get("text", ""), new)
         tgt["text"] = new
         tgt["color"] = "YELLOW"
+        tgt.pop("ai_suggested", None)
 
     # drug rows -> active (non-negated) drugs, cap 4 (coords rows)
     active = [d for d in patched.get("drugs", []) if not d.get("negated")]
@@ -231,21 +254,21 @@ def _apply_edits(orig_ej, edits, defaults=None):
             else:
                 _record(k, f"drugs[{i}].{field}", old, new)
                 row[field] = new
+        # provenance: only the fields the clinician edited stop being AI suggestions
+        edited = [field for col, field in fmap.items() if cols[col] in edits]
+        if row.pop("ai_suggested", False):
+            row["ai_fields"] = [f for f in fmap.values() if f not in edited]
+        elif row.get("ai_fields"):
+            row["ai_fields"] = [f for f in row["ai_fields"] if f not in edited]
         row["color"] = "YELLOW"
         row["confidence"] = max(float(row.get("confidence", 0) or 0), 0.85)
 
-    # vitals -> structured_vitals (authoritative for coords when present)
+    # vitals -> structured_vitals (authoritative per field for coords). Untouched
+    # vitals are not copied in: coords keeps their regex/AI value per field, and
+    # any regex-vs-AI conflict note stays until a human sets that field.
     sv = patched.setdefault("structured_vitals", {})
     vmap = {"vitals_bp_sys": "sys", "vitals_bp_dia": "dia",
             "vitals_temp": "temp", "vitals_spo2": "spo2"}
-    # structured_vitals replaces ALL vitals boxes once non-empty, so when any
-    # vital is corrected, carry over the untouched boxes' resolved AI values.
-    # NIL stays empty (-> RED). Not audited: no human change.
-    if defaults and any(sk in edits for sk in vmap):
-        for sk, field in vmap.items():
-            cur = str(defaults.get(sk, "") or "").strip()
-            if sk not in edits and field not in sv and cur and not cur.upper().startswith("NIL"):
-                sv[field] = cur
     for sk, field in vmap.items():
         if sk in edits:
             new = edits[sk].strip()
@@ -253,19 +276,29 @@ def _apply_edits(orig_ej, edits, defaults=None):
                 new = ""
             _record(sk, f"structured_vitals.{field}", sv.get(field, ""), new)
             sv[field] = new
+            if field in (patched.get("structured_vitals_ai") or []):
+                patched["structured_vitals_ai"] = [f for f in patched["structured_vitals_ai"] if f != field]
 
-    # allergies active line -> ;-separated replace (negated DENIED stay locked)
+    # allergies active line -> ;-separated replace (negated DENIED stay locked).
+    # The clinician's entry is authoritative (allergy_status): "No known
+    # allergies"/NKDA/None is a status, never an allergen; placeholders are ignored.
     if "allergy_line" in edits:
         new = edits["allergy_line"].strip()
         old_active = "; ".join(a.get("text", "") for a in patched.get("allergies", [])
-                               if not a.get("negated"))
+                               if isinstance(a, dict) and not a.get("negated"))
         _record("allergy_line", "allergies.active", old_active, new)
-        patched["allergies"] = [a for a in patched.get("allergies", []) if a.get("negated")]
-        for part in [p.strip() for p in new.split(";") if p.strip()
-                     and not p.strip().upper().startswith("NIL")]:
-            patched["allergies"].append({"text": part, "negated": False, "confidence": 0.9,
-                                         "color": "YELLOW", "source_sentence": "",
-                                         "note": "human-corrected"})
+        patched["allergies"] = [a for a in patched.get("allergies", [])
+                                if isinstance(a, dict) and a.get("negated")]
+        if re.match(r"^\s*(?:no\s+known\s+(?:drug\s+)?allerg(?:y|ies)|nkda|nka|none(?:\s+known)?|nil)\b",
+                    new, re.I) and not new.upper().startswith("NIL —"):
+            patched["allergy_status"] = "none_known"
+        else:
+            patched["allergy_status"] = "reviewed"
+            for part in [p.strip() for p in new.split(";") if p.strip()
+                         and not p.strip().upper().startswith(("NIL", "NOT DOCUMENTED"))]:
+                patched["allergies"].append({"text": part, "negated": False, "confidence": 0.9,
+                                             "color": "YELLOW", "source_sentence": "",
+                                             "note": "human-corrected"})
 
     # diagnosis + follow-up + signature
     dx = patched.setdefault("diagnosis", {})
@@ -273,6 +306,7 @@ def _apply_edits(orig_ej, edits, defaults=None):
         _record("dx_text", "diagnosis.text", dx.get("text", ""), edits["dx_text"].strip())
         dx["text"] = edits["dx_text"].strip()
         dx["color"] = "YELLOW"
+        dx.pop("ai_suggested", None)
     if "dx_code_box" in edits:
         _record("dx_code_box", "diagnosis.icd10", dx.get("icd10", ""), edits["dx_code_box"].strip())
         dx["icd10"] = edits["dx_code_box"].strip()
@@ -283,6 +317,7 @@ def _apply_edits(orig_ej, edits, defaults=None):
             new = ""
         _record("fu_text", "followup.text", fu.get("text", ""), new)
         fu["text"] = new
+        fu.pop("ai_suggested", None)
     if "sign_line" in edits:
         _record("sign_line", "signature", patched.get("signature", ""), edits["sign_line"].strip())
         patched["signature"] = edits["sign_line"].strip()
@@ -309,6 +344,109 @@ def _persist_corrected(job_id, patched, audit_entries):
     with open(afp, "w", encoding="utf-8") as f:
         json.dump(trail, f, indent=2, ensure_ascii=False)
     return efp, afp
+
+
+def _append_audit_events(job_id, events, image=False):
+    """Append events (verification history) to the job's audit trail; never rewrites history."""
+    if image:  # session-only trail for image jobs
+        key = f"{job_id}_audit"
+        st.session_state[key] = st.session_state.get(key, []) + list(events)
+        return
+    afp = os.path.join(_HERE, "entities", f"{job_id}.audit.json")
+    trail = []
+    try:
+        if os.path.isfile(afp):
+            with open(afp, encoding="utf-8") as f:
+                trail = json.load(f)
+    except Exception:
+        trail = []
+    trail.extend(events)
+    os.makedirs(os.path.dirname(afp), exist_ok=True)
+    with open(afp, "w", encoding="utf-8") as f:
+        json.dump(trail, f, indent=2, ensure_ascii=False)
+
+
+def _changed_audit(form_vals, saved_edits, ai_defaults, full_audit):
+    """Audit entries for boxes the doctor actually changed vs what was on screen.
+
+    Placeholders (NIL, ____) and untouched boxes are not corrections; a box
+    set back to the AI value is still a change of the working note.
+    """
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    by_slot = {a["slot_key"]: a for a in full_audit}
+    out = []
+    for k, v in form_vals.items():
+        prev = saved_edits.get(k, ai_defaults.get(k, ""))
+        if str(v) == str(prev):
+            continue
+        a = dict(by_slot.get(k) or {"ts": ts, "slot_key": k, "entity_path": "",
+                                    "original_ai": ai_defaults.get(k, ""),
+                                    "human_corrected": str(v).strip()})
+        a["previous_value"] = prev
+        if str(v) == str(ai_defaults.get(k, "")):
+            a["note"] = "reverted to AI value"
+        out.append(a)
+    return out
+
+
+def _note_fingerprint(ents):
+    """Content hash of the working note entities (what Verify approves)."""
+    blob = json.dumps(ents, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _new_run_id():
+    """Identifies one processing/editing run of a job (audit entries carry it)."""
+    return f"{datetime.datetime.now().strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:6]}"
+
+
+def _corrected_export_paths(job_id):
+    ex = os.path.join(_HERE, "exports")
+    return (os.path.join(ex, f"{job_id}.corrected.html"), os.path.join(ex, f"{job_id}.corrected.docx"),
+            os.path.join(ex, f"{job_id}.corrected.verified.json"))
+
+
+def _supersede_stale_exports(job_id, cur_fp, run_id):
+    """Keep exports/{job}.corrected.* at the canonical path only while their
+    manifest matches the current note; otherwise move them (never delete) to
+    a .corrected.superseded-<ts>-<fp>.* archive name and audit the move."""
+    html_p, docx_p, man_p = _corrected_export_paths(job_id)
+    present = [p for p in (html_p, docx_p, man_p) if os.path.isfile(p)]
+    if not present:
+        return
+    man = {}
+    try:
+        with open(man_p, encoding="utf-8") as f:
+            man = json.load(f)
+    except Exception:
+        man = {}
+    if man.get("status") == "verified" and man.get("note_fingerprint") == cur_fp:
+        return  # still exactly the current verified note
+    tag = f"{datetime.datetime.now().strftime('%Y%m%dT%H%M%S')}-{man.get('note_fingerprint') or 'unverified'}"
+    archived = []
+    for p in present:
+        stem = os.path.basename(p).split(".corrected.", 1)[1]  # html | docx | verified.json
+        base = os.path.join(os.path.dirname(p), f"{job_id}.corrected.superseded-{tag}")
+        dst, n = f"{base}.{stem}", 1
+        while os.path.exists(dst):
+            dst, n = f"{base}-{n}.{stem}", n + 1
+        os.replace(p, dst)
+        archived.append({"from": os.path.basename(p), "to": os.path.basename(dst)})
+    _append_audit_events(job_id, [{
+        "ts": datetime.datetime.now().isoformat(timespec="seconds"), "run_id": run_id,
+        "event": "corrected_exports_superseded",
+        "reason": "exports no longer match the current verified note",
+        "export_fingerprint": man.get("note_fingerprint"), "current_fingerprint": cur_fp,
+        "archived": archived}])
+
+
+def _reset_note_state(job_id):
+    """New processing job: drop editor/verification state (audit history is kept)."""
+    for k in (f"{job_id}_orig", f"{job_id}_edits", f"{job_id}_verified",
+              f"{job_id}_verified_fp", f"{job_id}_needs_reverify", f"{job_id}_run_id"):
+        st.session_state.pop(k, None)
+    for sk in _EDITABLE_SLOTS:
+        st.session_state.pop(f"{job_id}_{sk}", None)
 
 
 def _ocr_tab(image_bytes, ocr):
@@ -343,6 +481,9 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
     """
     image = source == "image"
     st.success(f"Job `{job_id}`  |  lang `{tj.get('language')}`  |  engine `{tj.get('stt_engine')}`")
+    if not image and str(tj.get("stt_engine", "")).startswith("mock"):
+        st.warning("SYNTHETIC transcript (mock STT): this is a built-in demo script, not your audio. "
+                   "Do not use for clinical care.")
     if image:
         steps = ["receive ok", f"OCR {len(tj.get('segments', []))} lines",
                  f"{len(ej.get('drugs', []))} drugs", "discharge ready"]
@@ -373,7 +514,14 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                 except Exception as e:
                     st.warning(f"waveform skipped: {e}")
             if meta:
-                st.json({k: meta.get(k) for k in ("duration_s", "vad_ratio", "snr_before_db", "snr_after_db", "denoise") if k in meta})
+                legacy = "snr_before_db" in meta and "quality_note" not in meta
+                keys = ("duration_s", "vad_ratio", "vad_method", "input_rms_dbfs", "input_peak_dbfs",
+                        "input_clipped_ratio", "quality_note") + (() if legacy else ("denoise",))
+                st.json({k: meta.get(k) for k in keys if k in meta})
+                if legacy:
+                    st.caption("Audio metadata from an older version: its 'SNR' values were a loudness "
+                               "estimate (not a measured signal-to-noise ratio) and its denoise label "
+                               "was not verified, so neither is shown. Re-run the file for level data.")
     with tab_text:
         st.code(tj.get("text", ""))
         st.success(tj.get("normalized_en", ""))
@@ -396,10 +544,13 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
         try:
             orig_key, edits_key, ver_key = f"{job_id}_orig", f"{job_id}_edits", f"{job_id}_verified"
             audit_key = f"{job_id}_audit"  # image source only
+            run_key = f"{job_id}_run_id"
             if orig_key not in st.session_state:
                 st.session_state[orig_key] = copy.deepcopy(ej)
                 st.session_state[edits_key] = {}
                 st.session_state[ver_key] = False
+                st.session_state[run_key] = _new_run_id()  # new processing/editing run
+            run_id = st.session_state.setdefault(run_key, _new_run_id())
             orig_ej = st.session_state[orig_key]
             saved_edits = st.session_state[edits_key]
 
@@ -422,37 +573,68 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                             form_vals[sk] = st.text_input(_SLOT_LABELS.get(sk, sk), value=cur, key=f"{job_id}_{sk}")
                     submitted = st.form_submit_button("Apply corrections", use_container_width=True)
                 if submitted:
-                    patched, new_audit = _apply_edits(orig_ej, {**saved_edits, **form_vals}, ai_defaults)
-                    # keep only real diffs vs AI original
-                    st.session_state[edits_key] = {k: v for k, v in {**saved_edits, **form_vals}.items()
-                                                   if str(v) != str(ai_defaults.get(k, ""))}
+                    # keep only real diffs vs AI original; audit only boxes changed vs the
+                    # note on screen. Verification follows the content fingerprint below.
+                    new_edits = {k: v for k, v in {**saved_edits, **form_vals}.items()
+                                 if str(v) != str(ai_defaults.get(k, ""))}
+                    patched, full_audit = _apply_edits(orig_ej, new_edits, ai_defaults)
+                    new_audit = [{**a, "run_id": run_id}
+                                 for a in _changed_audit(form_vals, saved_edits, ai_defaults, full_audit)]
+                    st.session_state[edits_key] = new_edits
                     if new_audit:
                         if image:  # session-only audit trail, no disk writes
                             st.session_state[audit_key] = st.session_state.get(audit_key, []) + new_audit
                         else:
                             _persist_corrected(job_id, patched, new_audit)
-                        st.session_state[ver_key] = False  # new edits reset verification
                         st.success(f"Saved {len(new_audit)} correction(s). Review the preview, then Verify.")
                     else:
-                        st.info("No changes vs AI original.")
+                        st.info("No changes.")
                     st.rerun()
 
                 # re-resolve AFTER edits for RED count + preview
                 cur_ej, _ = _apply_edits(orig_ej, saved_edits, ai_defaults) if saved_edits else (orig_ej, [])
                 _d, r_cur = _slot_defaults(cur_ej, tj)
+                _multi_readings_warning(r_cur, image)
                 reds = [s for s in r_cur.get("slots", []) if s.get("color") == "RED"]
-                n_audit = 0
+                # Verification approves exact note content: any later change (edit or
+                # revert) invalidates it; reruns / no-op Apply leave content unchanged.
+                fp_key, stale_key = f"{job_id}_verified_fp", f"{job_id}_needs_reverify"
+                cur_fp = _note_fingerprint(cur_ej)
+                if st.session_state[ver_key] and st.session_state.get(fp_key) != cur_fp:
+                    st.session_state[ver_key] = False
+                    st.session_state[stale_key] = True
+                    _append_audit_events(job_id, [{
+                        "ts": datetime.datetime.now().isoformat(timespec="seconds"), "run_id": run_id,
+                        "event": "verification_invalidated",
+                        "reason": "note content changed after verification",
+                        "verified_fingerprint": st.session_state.get(fp_key),
+                        "current_fingerprint": cur_fp}], image)
+                if st.session_state.get(stale_key):
+                    st.warning("This note was changed after it was verified — it needs re-verification. "
+                               "Corrected exports stay locked until you verify again.")
+                if not image:  # disk exports must never outlive the note they verified
+                    try:
+                        _supersede_stale_exports(job_id, cur_fp, run_id)
+                    except Exception as e:
+                        st.error(f"Could not archive outdated corrected exports ({e}); "
+                                 f"do not use exports/{job_id}.corrected.* until re-verified.")
+                trail = []
                 if image:
-                    n_audit = len(st.session_state.get(audit_key, []))
+                    trail = st.session_state.get(audit_key, [])
                 else:
                     try:
                         afp0 = os.path.join(_HERE, "entities", f"{job_id}.audit.json")
                         if os.path.isfile(afp0):
                             with open(afp0, encoding="utf-8") as f:
-                                n_audit = len(json.load(f))
+                                trail = json.load(f)
                     except Exception:
                         pass
-                st.caption(f"Audited corrections: {n_audit} | RED missing: {len(reds)}")
+                # only this run's corrections count; earlier runs stay as history
+                corr = [e for e in trail if isinstance(e, dict) and e.get("slot_key")]
+                n_audit = sum(1 for e in corr if e.get("run_id") == run_id)
+                earlier = len(corr) - n_audit
+                st.caption(f"Audited corrections: {n_audit} | RED missing: {len(reds)}"
+                           + (f" | {earlier} from earlier runs kept in history (not counted)" if earlier else ""))
                 can_verify = n_audit > 0 and len(reds) == 0 and not st.session_state[ver_key]
                 if st.session_state[ver_key]:
                     st.success("Verified — corrected exports unlocked.")
@@ -460,6 +642,12 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                                disabled=not can_verify, use_container_width=True,
                                key=f"verify_{job_id}"):
                     st.session_state[ver_key] = True
+                    st.session_state[fp_key] = cur_fp
+                    st.session_state[stale_key] = False
+                    _append_audit_events(job_id, [{
+                        "ts": datetime.datetime.now().isoformat(timespec="seconds"), "run_id": run_id,
+                        "event": "verified", "note_fingerprint": cur_fp,
+                        "audited_corrections": n_audit}], image)
                     st.rerun()
                 if not can_verify and not st.session_state[ver_key]:
                     st.caption("Verify requires ≥1 audited correction and zero RED fields (403-gate).")
@@ -477,19 +665,30 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                         docx_bytes = prev.get("docx_bytes") if isinstance(prev, dict) else None
                         if docx_bytes:
                             if not image:  # image: in-memory download only
-                                efp = os.path.join(_HERE, "exports", f"{job_id}.corrected.html")
+                                efp, dfp, mfp = _corrected_export_paths(job_id)
                                 try:
                                     os.makedirs(os.path.dirname(efp), exist_ok=True)
                                     with open(efp, "w", encoding="utf-8") as f:
                                         f.write(html)
-                                    with open(os.path.join(_HERE, "exports", f"{job_id}.corrected.docx"), "wb") as f:
+                                    with open(dfp, "wb") as f:
                                         f.write(docx_bytes)
+                                    # manifest: which exact note these files are (stale check)
+                                    with open(mfp, "w", encoding="utf-8") as f:
+                                        json.dump({"job_id": job_id, "run_id": run_id, "status": "verified",
+                                                   "note_fingerprint": st.session_state.get(fp_key),
+                                                   "files": [os.path.basename(efp), os.path.basename(dfp)]},
+                                                  f, indent=2)
                                 except Exception as e:
                                     st.warning(f"persist skipped: {e}")
                             st.download_button("Download CORRECTED DOCX (verified)", docx_bytes,
                                                file_name=f"{job_id}.corrected.docx")
                     else:
                         st.caption("Corrected exports locked until Verify (no RED + audited). Print/PDF only from the verified note.")
+                    if isinstance(prev, dict) and prev.get("docx_error"):
+                        st.warning(f"DOCX could not be generated ({prev['docx_error']}); HTML note is complete.")
+                except TemplateRenderError as e:
+                    st.error(f"Discharge note could not be generated — no preview, download or export "
+                             f"is available until this is fixed.\n\n{e}")
                 except Exception as e:
                     st.warning(f"preview skipped: {e}")
             with st.expander("Show Source links"):
@@ -533,6 +732,15 @@ def _image_job_id(upload_name, content):
     """img-<safe-stem>-<sha8>: same filename + different content -> different job/state."""
     stem = re.sub(r"[^A-Za-z0-9_-]", "_", os.path.splitext(upload_name)[0])[:12]
     return f"img-{stem}-{hashlib.sha256(content).hexdigest()[:8]}"
+
+
+_LIVE_RESULT_KEY = "live_audio_result"  # last uploaded-audio pipeline result (session only)
+
+
+def _live_job_id(upload_name, content):
+    """live-<stem12>-<sha8>: same filename prefix + different content -> different job/state."""
+    stem = os.path.splitext(upload_name)[0][:12].replace(" ", "_")
+    return f"live-{stem}-{hashlib.sha256(content).hexdigest()[:8]}"
 
 
 def _image_text_extract(ocr, job_id, use_llm=False, ollama_model="llama3.2:3b"):
@@ -638,6 +846,7 @@ def _image_ocr_view():
             except Exception as e:
                 x = {"error": f"{type(e).__name__}: {e}"}
         st.session_state[res_key + "_x"] = x
+        _reset_note_state(job_id)  # new OCR run: editor/verify follow the new extraction
 
     r = st.session_state.get(res_key)
     with col_txt:
@@ -739,8 +948,8 @@ def main():
         with open(tmp_in, "wb") as f:
             f.write(up.getbuffer())
         st.audio(tmp_in)
+        job_id = _live_job_id(up.name, up.getvalue())
         if run_btn:
-            job_id = "live-" + os.path.splitext(up.name)[0][:12].replace(" ", "_")
             with st.spinner("Stage 1 cleaning…"):
                 cleaned = os.path.join(tempfile.gettempdir(), f"{job_id}_clean.wav")
                 try:
@@ -748,9 +957,23 @@ def main():
                 except ValueError as e:
                     st.error(str(e))
                     return
-            with st.spinner(f"Stages 2-4 transcribing ({model_key}) + extracting…"):
-                tj, ej = run_stt_extract(cleaned, job_id, use_llm=use_llm, model=model_key, ollama_model=ollama_model)
-            _show_result(job_id, tj, ej, meta, raw_path=tmp_in, clean_path=cleaned)
+            try:
+                with st.spinner(f"Stages 2-4 transcribing ({model_key}) + extracting…"):
+                    tj, ej = run_stt_extract(cleaned, job_id, use_llm=use_llm, model=model_key,
+                                             ollama_model=ollama_model)
+            except TranscriptionError as e:
+                # no substitute text: nothing extracted, shown or persisted for this run
+                if (st.session_state.get(_LIVE_RESULT_KEY) or {}).get("job_id") == job_id:
+                    st.session_state.pop(_LIVE_RESULT_KEY, None)
+                st.error(f"Speech-to-text failed — no transcript, entities or discharge note "
+                         f"were produced for this file.\n\n{e}")
+                return
+            # Buttons are True only on the click rerun; Apply corrections / Verify
+            # call st.rerun(), so the result must live in session state to survive.
+            # A fresh run replaces this job's earlier AI original / edits / verify.
+            _reset_note_state(job_id)
+            st.session_state[_LIVE_RESULT_KEY] = {"job_id": job_id, "tj": tj, "ej": ej,
+                                                  "meta": meta, "clean_path": cleaned}
             # persist for download/share
             try:
                 for name, obj in ((f"transcripts/{job_id}.json", tj), (f"entities/{job_id}.entities.json", ej)):
@@ -766,6 +989,10 @@ def main():
                         f.write(prev["html"])
             except Exception as e:
                 st.warning(f"persist skipped: {e}")
+        live = st.session_state.get(_LIVE_RESULT_KEY)
+        if live and live["job_id"] == job_id:  # only for this exact upload (name + content)
+            _show_result(job_id, live["tj"], live["ej"], live["meta"],
+                         raw_path=tmp_in, clean_path=live["clean_path"])
         else:
             st.info("Press ▶ Run pipeline to process this file.")
     else:

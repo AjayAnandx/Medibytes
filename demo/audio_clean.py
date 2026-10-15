@@ -59,14 +59,18 @@ def check_audio(path):
             return {"size": size, "duration": None, "note": "non-wav, no ffmpeg - demo accepts"}
     _, _, _, dur = info
     if dur is not None and dur > MAX_SECONDS:
-        raise ValueError(f"413 TOO_LONG: {dur:.1f}s > 30min")
+        raise ValueError(f"413 TOO_LONG: {dur:.1f}s is longer than the {MAX_SECONDS / 60:g} min limit")
     if dur is not None and dur < 0.6:
         raise ValueError("422 NO_AUDIO: <0.6s")
     return {"size": size, "duration": dur}
 
 
-def _load_mono_float(path, target_sr=TARGET_SR):
-    """Load audio as mono float32 at target_sr. Pure stdlib+numpy for wav; ffmpeg fallback for mp3."""
+def _load_mono_float(path, target_sr=TARGET_SR, max_seconds=None):
+    """Load audio as mono float32 at target_sr. Pure stdlib+numpy for wav; ffmpeg fallback for mp3.
+
+    max_seconds: ffmpeg stops decoding just past this, so an over-long upload
+    costs at most limit+1 s of decode (callers compare the decoded length).
+    """
     info = _wav_info(path)
     if info is not None:
         _, sr, ch, _ = info
@@ -92,22 +96,31 @@ def _load_mono_float(path, target_sr=TARGET_SR):
     # Non-wav: try imageio-ffmpeg decode to wav in memory
     try:
         import imageio_ffmpeg
-        import subprocess
-        import tempfile
         exe = imageio_ffmpeg.get_ffmpeg_exe()
-        tmp = tempfile.mktemp(suffix=".wav")
-        subprocess.run(
-            [exe, "-y", "-v", "error", "-i", path, "-ac", "1", "-ar", str(target_sr), tmp],
-            check=True,
+    except Exception as e:
+        raise ValueError(f"422 DECODE_FAIL: need wav or pip install imageio-ffmpeg ({e})")
+    import subprocess
+    import tempfile
+    fd, tmp = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    limit = ["-t", str(max_seconds + 1)] if max_seconds else []
+    try:
+        r = subprocess.run(
+            [exe, "-y", "-v", "error", "-i", path, *limit, "-ac", "1", "-ar", str(target_sr), tmp],
+            capture_output=True, text=True, errors="ignore",
         )
+        info = _wav_info(tmp) if r.returncode == 0 else None
+        if info is None or info[0] == 0:
+            detail = (r.stderr or "").strip().splitlines()[-1:] or ["no audio stream"]
+            raise ValueError(f"422 DECODE_FAIL: could not decode audio - file may be corrupt or "
+                             f"unsupported ({detail[0][:160]})")
         y, _ = _load_mono_float(tmp, target_sr)
+        return y, target_sr
+    finally:
         try:
             os.remove(tmp)
         except OSError:
             pass
-        return y, target_sr
-    except Exception as e:
-        raise ValueError(f"422 DECODE_FAIL: need wav or pip install imageio-ffmpeg ({e})")
 
 
 def _save_wav(path, y, sr=TARGET_SR):
@@ -144,22 +157,39 @@ def _rms_vad(y, sr, frame_ms=30, thresh=0.02):
     return mask, float(speech_frames.mean())
 
 
+def _dbfs(x):
+    """Linear level (1.0 = digital full scale) -> dBFS, 1 dp. Not positive/finite -> None."""
+    if isinstance(x, bool) or not isinstance(x, (int, float, np.floating)):
+        return None
+    x = float(x)
+    if not np.isfinite(x) or x <= 0:
+        return None
+    return round(20 * float(np.log10(x)), 1)
+
+
 def clean_audio(in_path, out_path, apply_denoise=True):
     """Stage 1: 16k mono + loudnorm-ish + VAD skip + optional noisereduce.
 
     Returns enhancement_meta dict. Raises 422 NO_AUDIO if >95% silent.
     """
     meta_in = check_audio(in_path)
-    y, sr = _load_mono_float(in_path)
+    y, sr = _load_mono_float(in_path, max_seconds=MAX_SECONDS)
+    # authoritative length check on DECODED audio: header metadata can be
+    # missing (m4a) or understate the real length (e.g. concatenated mp3)
+    dur = len(y) / float(sr) if sr else 0.0
+    if dur > MAX_SECONDS:
+        raise ValueError(f"413 TOO_LONG: decoded audio is longer than the "
+                         f"{MAX_SECONDS / 60:g} min limit (>{MAX_SECONDS}s)")
 
-    # loudnorm-ish: target RMS ~0.1 (prod uses FFmpeg loudnorm I=-16)
+    # input level measurements (dBFS, before any gain). No noise floor is
+    # estimated, so no signal-to-noise ratio is reported.
     rms = float(np.sqrt((y ** 2).mean())) if y.size else 0.0
-    snr_before = round(20 * np.log10(rms + 1e-6) + 60, 1)
+    in_peak = float(np.max(np.abs(y))) if y.size else 0.0
+    clipped = round(float(np.mean(np.abs(y) >= 0.999)), 4) if y.size else None
+    # loudnorm-ish: target RMS ~0.1 (prod uses FFmpeg loudnorm I=-16)
     if rms > 1e-6:
         y = y * (0.1 / rms)
         y = np.clip(y, -0.98, 0.98)
-    # re-measure after gain (post-gain RMS is ~0.1 by construction)
-    snr_after = round(snr_before + 6.0, 1)  # +6dB nominal cleaning gain for demo display
 
     mask, vad_ratio = _rms_vad(y, sr)
     peak = float(np.max(np.abs(y))) if y.size else 0.0
@@ -170,12 +200,14 @@ def clean_audio(in_path, out_path, apply_denoise=True):
         raise ValueError("422 NO_AUDIO: >95% silent or <0.6s speech (saves GPU 4-8x)")
 
     y_speech = y  # keep full timeline for word timestamps; VAD only reported (prod trims)
+    denoise = "none"
     if apply_denoise:
         try:
             import noisereduce as nr
             y_speech = nr.reduce_noise(y=y_speech, sr=sr).astype(np.float32)
-        except Exception:
-            pass  # pure-CPU fallback: gain-normalized only
+            denoise = "noisereduce"
+        except Exception as e:  # pure-CPU fallback: gain-normalized only
+            denoise = f"not applied ({type(e).__name__}: noisereduce unavailable or failed)"
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     _save_wav(out_path, y_speech, sr)
@@ -186,8 +218,11 @@ def clean_audio(in_path, out_path, apply_denoise=True):
         "channels": 1,
         "duration_s": round(len(y_speech) / sr, 2),
         "vad_ratio": round(vad_ratio, 3),
-        "snr_before_db": snr_before,
-        "snr_after_db": snr_after,
-        "denoise": "noisereduce" if apply_denoise else "none",
+        "vad_method": "energy: share of 30 ms frames with RMS >= 0.02 after gain (not a speech detector)",
+        "input_rms_dbfs": _dbfs(rms),
+        "input_peak_dbfs": _dbfs(in_peak),
+        "input_clipped_ratio": clipped,
+        "quality_note": "level measurements only; no signal-to-noise ratio is measured",
+        "denoise": denoise,
         "diarization": "off (default per report)",
     }

@@ -127,10 +127,13 @@ def test_gapfill_diagnosis_and_judge_summary(monkeypatch):
     assert merged["diagnosis"]["text"] == "viral fever"  # LLM gap-filled
     assert merged["llm_engine"].startswith("regex+llm-image:")
     assert ev["engine"].startswith("ai-eval:")
-    assert ev["summary"] == {"pass": 12, "missing": 2, "unproven": 0}
+    # line 4 documents "No known allergy": allergy_line now carries that status
+    # (it was lost as NIL before the allergy fix); JUDGE_OK gives no verdict -> UNPROVEN
+    assert ev["summary"] == {"pass": 12, "missing": 1, "unproven": 1}
     by_field = {f["field"]: f for f in ev["fields"]}
     assert by_field["dx_text"]["status"] == "PASS"
-    assert by_field["allergy_line"]["status"] == "MISSING"  # truly absent
+    assert by_field["allergy_line"]["status"] == "UNPROVEN"
+    assert by_field["allergy_line"]["value"].lower().startswith("no known allergies")
     assert by_field["vitals_spo2"]["status"] == "MISSING"
     assert "drug_1_name" not in by_field  # no 2nd drug -> not judged
 
@@ -192,7 +195,7 @@ def test_run_text_extract_image_llm_path(monkeypatch):
     tj, ej = run_text_extract(OCR_TEXT, _segs(), job_id="img-t",
                               use_llm=True, engine="easyocr", source="image")
     assert ej["llm_engine"].startswith("regex+llm-image:")
-    assert ej["ai_eval"]["summary"]["missing"] == 2
+    assert ej["ai_eval"]["summary"]["missing"] == 1  # allergy status documented (NKA line)
     assert ej["diagnosis"]["text"] == "viral fever"
 
 

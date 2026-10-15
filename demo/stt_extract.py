@@ -6,6 +6,7 @@ normalize via unicode-range LID + hardcoded Hinglish map; extract via regex
 + drug_list_mini.json + optional spaCy-sm + optional Ollama qwen2.5:0.5b tidy.
 """
 import json
+import math
 import os
 import re
 import subprocess
@@ -56,8 +57,33 @@ DRUG_CTX = re.compile(
 )
 # Split multi-drug sentences: "amox ... along with ibuprofen ..." -> two clauses
 DRUG_SPLIT_PAT = re.compile(r"\s+(?:along with|alongwith|plus|and also|\+)\s+", re.I)
+# source="image": an OCR line holding ONLY a frequency (optionally + duration),
+# e.g. "Paracetamol 500 mg" / "Twice daily", belongs to the drug line above it.
+FREQ_LINE_PAT = re.compile(
+    r"^(?:take\s+)?(?P<freq>" + FREQ_PAT + r")"
+    r"(?:\s+(?:for\s+)?(?P<dur>\d+)\s*(?P<durunit>days?|weeks?|months?))?\s*\.?$", re.I)
 # Generic allergy mention: "allergy to <word>" (candidate, YELLOW; negated flag from NEG_PAT)
 ALLERGY_CTX = re.compile(r"allerg(?:y|ies)\s+(?:to|of|from)\s+(?:a\s+|an\s+|the\s+)?(?P<drug>[A-Za-z]+)", re.I)
+# Allergy negation is judged per clause, so "allergic to X, denies Y allergy"
+# keeps X active. A sentence only splits before a negation cue / at ";" / "but".
+ALLERGY_CLAUSE_SPLIT = re.compile(
+    r",\s*(?=(?:no|not|denies|denied|denying|without|never|negative)\b)|;\s*|\s+but\s+", re.I)
+# Documented (non-negated) allergy lists: "allergic to X and Y", "allergy to X",
+# "Allergies: X, Y" (OCR label). Items are verbatim words from the source.
+ALLERGY_LIST_PAT = re.compile(
+    r"\b(?:allergic\s+to|allerg(?:y|ies)\s+(?:to|of|from)|allerg(?:y|ies)\s*[:\-])\s*"
+    r"(?P<list>[A-Za-z][A-Za-z ,/&\-]*)", re.I)
+ALLERGY_ITEM_SPLIT = re.compile(r"\s*(?:,|/|&|\band\b|\bor\b)\s*", re.I)
+ALLERGY_ITEM_CUT = re.compile(r"\s+(?:which|that|since|causing|causes|caused|with|for|in|on|as|leading|gives)\b.*", re.I)
+ALLERGY_NONE_WORDS = {"none", "nil", "nka", "nkda", "none known", "no known", "nothing", "no"}
+# Explicitly documented "no known allergies" (never inferred from silence).
+# A drug-specific denial ("no allergy to penicillin") is NOT NKA.
+NKA_PAT = re.compile(
+    r"\b(?:no|nil|denies|denied|without)\s+(?:any\s+)?(?:known\s+)?(?:drug\s+|medication\s+)?"
+    r"allerg(?:y|ies)\b(?!\s+(?:to|of|from|with|for)\b)"
+    r"|\ballerg(?:y|ies)\s*[:\-]\s*(?:none|nil|no\s+known|nkda|nka)\b"
+    r"|(?-i:\bNKD?A\b)", re.I)
+NKA_MARKER = {"span": "No allergy", "negated": True, "note": "rule stand-in for CAN-BERT"}
 UCUM = {"milligram": "mg", "milligrams": "mg", "microgram": "mcg", "micrograms": "mcg",
         "gram": "g", "grams": "g", "milliliter": "ml", "milliliters": "ml",
         "units": "U", "unit": "U"}
@@ -139,14 +165,46 @@ def _mock_segments(text, lang="mix"):
     return segs
 
 
+CONFIDENCE_BASIS = "exp(avg_logprob): Whisper mean token probability, uncalibrated heuristic"
+
+
+def _segment_confidence(avg_logprob):
+    """Whisper segment avg_logprob (<= 0) -> exp() in [0, 1], 2 dp.
+
+    A model-derived heuristic (geometric-mean token probability), NOT a
+    calibrated probability that the text is correct. Missing, non-numeric,
+    non-finite or positive (impossible log-prob) -> None; never invented.
+    """
+    if isinstance(avg_logprob, bool) or not isinstance(avg_logprob, (int, float)):
+        return None
+    if not math.isfinite(avg_logprob) or avg_logprob > 0:
+        return None
+    return round(math.exp(avg_logprob), 2)
+
+
+class TranscriptionError(RuntimeError):
+    """Real speech-to-text failed. Callers must show it, never substitute text."""
+
+
 def transcribe(clean_wav, job_id="demo-001", model="tiny-int8"):
-    """Stage 2. Real faster-whisper if installed, else mock (filenames map above)."""
+    """Stage 2. Real faster-whisper; mock scripts ONLY when model="mock" is requested.
+
+    Mock output is a synthetic demo script (engine starts with "mock"; the UI
+    and CLI label it as synthetic). Any Whisper failure (not installed, model load, decoding) raises
+    TranscriptionError — a synthetic script is never returned for real audio.
+    """
     if model == "mock":
         key = job_id if job_id in MOCK_TEXTS else "demo-001"
         return {"text": MOCK_TEXTS[key], "segments": _mock_segments(MOCK_TEXTS[key]),
                 "engine": "mock (forced --model mock)", "language": "mix"}
     try:
         from faster_whisper import WhisperModel
+    except ImportError as e:
+        raise TranscriptionError(
+            f"transcription failed: faster-whisper is not installed ({e}). "
+            "Install it (pip install -r demo/requirements-demo.txt) or explicitly "
+            "choose the synthetic mock model.") from e
+    try:
         size = {"tiny-int8": "tiny", "base-int8": "base", "small-int8": "small"}.get(model, "tiny")
         wm = WhisperModel(size, device="cpu", compute_type="int8")
         segments, info = wm.transcribe(
@@ -158,27 +216,20 @@ def transcribe(clean_wav, job_id="demo-001", model="tiny-int8"):
             full.append(s.text.strip())
             segs.append({"id": i, "text": s.text.strip(), "start": round(s.start, 2),
                          "end": round(s.end, 2), "lang": getattr(info, "language", "en"),
-                         "confidence": round(float(getattr(s, "avg_logprob", -0.2)) * -1 + 0.7, 2) if hasattr(s, "avg_logprob") else 0.88,
+                         "confidence": _segment_confidence(getattr(s, "avg_logprob", None)),
+                         "confidence_basis": CONFIDENCE_BASIS,
                          "words": [{"w": w.word, "s": round(w.start, 2), "e": round(w.end, 2)}
                                    for w in (s.words or [])]})
-            # hallucination guard: drop thank-you loops on silence
-            if re.search(r"(thank you\s*){3,}", s.text, re.I):
-                segs[-1]["confidence"] = 0.2
+            # hallucination guard: thank-you loops on silence -> cap low, never raise
+            c = segs[-1]["confidence"]
+            if re.search(r"(thank you\s*){3,}", s.text, re.I) and c is not None:
+                segs[-1]["confidence"] = min(c, 0.2)
         text = " ".join(full)
         return {"text": text, "segments": segs, "engine": f"faster-whisper:{size}-cpu-int8",
                 "language": getattr(info, "language", "en")}
     except Exception as e:
-        key = job_id if job_id in MOCK_TEXTS else None
-        if key is None:
-            base = os.path.splitext(os.path.basename(clean_wav))[0].lower()
-            for k in MOCK_TEXTS:
-                if k in base or base in k:
-                    key = k
-                    break
-            key = key or "demo-001"
-        text = MOCK_TEXTS[key]
-        return {"text": text, "segments": _mock_segments(text),
-                "engine": f"mock (no faster-whisper: {type(e).__name__})", "language": "mix"}
+        raise TranscriptionError(
+            f"transcription failed ({model}): {type(e).__name__}: {e}") from e
 
 
 def detect_lang_tag(text):
@@ -353,30 +404,69 @@ def extract_entities(text, normalized_en, segments, source="audio"):
                                  "source_sentence": proof_sent,
                                  "negated": is_neg,
                                  **({"note": "DENIED - excluded"} if is_neg else {})})
-        # standalone allergy mention without dose, e.g. "No penicillin allergy"
-        # legacy allowlist first, then generic "allergy to X" candidate (YELLOW, negated if NEG_PAT)
-        if neg:
-            for aw in ("penicillin", "sulfa", "sulpha"):
-                if aw in low and not any(a.get("text") == aw for a in allergies):
-                    allergies.append({"text": aw, "negated": True, "confidence": 0.9,
-                                      "source_sentence": proof_sent,
-                                      "note": "NEGATED - not added to allergy table"})
+        # allergies, judged per clause (sentence-level negation flipped
+        # "allergic to X, denies Y allergy" into X denied).
+        for clause in ALLERGY_CLAUSE_SPLIT.split(sent):
+            clow = clause.lower()
+            if _negated(clause):
+                # standalone denial without dose, e.g. "No penicillin allergy":
+                # legacy allowlist first, then generic "allergy to X" candidate
+                for aw in ("penicillin", "sulfa", "sulpha"):
+                    if aw in clow and not any(a.get("text") == aw and a.get("negated") for a in allergies):
+                        allergies.append({"text": aw, "negated": True, "confidence": 0.9,
+                                          "source_sentence": proof_sent,
+                                          "note": "NEGATED - not added to allergy table"})
+                        negations.append({"span": proof_sent[:60], "negated": True})
+                for am in ALLERGY_CTX.finditer(clause):
+                    cand = (am.group("drug") or "").lower()
+                    if not cand or any(a.get("text") == cand and a.get("negated") for a in allergies):
+                        continue
+                    allergies.append({"text": cand, "negated": True, "confidence": 0.82,
+                                      "color": "YELLOW", "source_sentence": proof_sent,
+                                      "note": "NEGATED candidate - verify drug name"})
                     negations.append({"span": proof_sent[:60], "negated": True})
-            for am in ALLERGY_CTX.finditer(sent):
-                cand = (am.group("drug") or "").lower()
-                if not cand or any(a.get("text") == cand for a in allergies):
-                    continue
-                # never promote a known drug-list miss as allergy unless negated sentence
-                allergies.append({"text": cand, "negated": True, "confidence": 0.82,
-                                  "color": "YELLOW", "source_sentence": proof_sent,
-                                  "note": "NEGATED candidate - verify drug name"})
-                negations.append({"span": proof_sent[:60], "negated": True})
+                continue
+            # documented allergy: only words stated in the source, YELLOW (verify)
+            found = []
+            for lm in ALLERGY_LIST_PAT.finditer(clause):
+                for item in ALLERGY_ITEM_SPLIT.split(lm.group("list")):
+                    item = ALLERGY_ITEM_CUT.sub("", item).strip(" -").lower()
+                    item = re.sub(r"^(?:a|an|the|any)\s+", "", item)
+                    if item and item not in ALLERGY_NONE_WORDS and len(item.split()) <= 3:
+                        found.append(item)
+            for xm in re.finditer(r"\b([a-z]+)\s+allerg(?:y|ies)\b", clow):
+                if xm.group(1) in drugs_known or xm.group(1) in alias_to_canonical \
+                        or xm.group(1) in ("penicillin", "sulfa", "sulpha"):
+                    found.append(xm.group(1))
+            for item in found:
+                if not any(a.get("text", "").lower() == item and not a.get("negated") for a in allergies):
+                    allergies.append({"text": item, "negated": False, "confidence": 0.85,
+                                      "color": "YELLOW", "source_sentence": proof_sent,
+                                      "note": "documented allergy - verify"})
         for vm in VITALS_PAT.finditer(sent):
             vitals.append({"text": vm.group(0), "confidence": 0.87, "color": "YELLOW",
                            "source_sentence": proof_sent})
-        if re.search(r"\bno allergy\b", sent, re.I):
-            negations.append({"span": "No allergy", "negated": True,
-                              "note": "rule stand-in for CAN-BERT"})
+        if NKA_PAT.search(sent):  # explicit "no known allergies" statement
+            negations.append(dict(NKA_MARKER))
+
+    # image only: frequency printed alone on the next OCR line -> attach verbatim
+    # to the drug above (row YELLOW + note: the clinician checks the pairing)
+    if image:
+        ocr_lines = [ln.strip() for ln in text.split("\n")]
+        for d in drugs:
+            proof = str(d.get("source_sentence", "") or "").strip()
+            i = next((j for j, ln in enumerate(ocr_lines) if proof and proof in ln), None)
+            if d.get("frequency") or i is None or i + 1 >= len(ocr_lines):
+                continue
+            fm = FREQ_LINE_PAT.match(ocr_lines[i + 1])
+            if not fm:
+                continue
+            d["frequency"] = fm.group("freq")
+            if fm.group("dur") and not d.get("duration"):
+                d["duration"] = f"{fm.group('dur')} {fm.group('durunit')}"
+            d["color"] = "YELLOW"
+            d["confidence"] = min(float(d.get("confidence", 0.85) or 0.85), 0.85)
+            d["note"] = (str(d.get("note", "")) + " frequency from next OCR line - verify").strip()
 
     # diagnosis + follow-up sentences (LLM-primary covers more; regex floor)
     # audio: whole text; image: first matching OCR line (no run-on into next line)
@@ -443,12 +533,15 @@ def _merge_tidy_drugs(regex_drugs, tidy_drugs):
         if not isinstance(t, dict) or not t.get("name"):
             dropped += 1
             continue
+        from llm_extract import mark_ai_field
         name = str(t["name"]).lower()
         base = by_name.get(name, {"name": t["name"], "confidence": 0.85, "color": "YELLOW",
-                                  "source_sentence": "", "negated": False})
+                                  "source_sentence": "", "negated": False, "ai_suggested": True})
         for k in ("dose", "unit", "frequency", "duration", "confidence"):
             if base.get(k) in (None, "", 0) and t.get(k) not in (None, "", 0):
                 base[k] = t[k]
+                if k != "confidence":
+                    mark_ai_field(base, k)  # AI-filled field: clinician reviews
         try:
             if base.get("dose") is not None:
                 base["dose"] = float(base["dose"])
@@ -478,9 +571,11 @@ def ollama_tidy(entities, normalized_en, model="llama3.2:3b", timeout=60):
                 merged = dict(entities)
                 drugs, dropped = _merge_tidy_drugs(entities.get("drugs", []), tidy.get("drugs"))
                 merged["drugs"] = drugs
+                from llm_extract import mark_ai_item
                 for k in ("symptoms", "vitals", "allergies", "diagnosis", "followup"):
                     if tidy.get(k):
-                        merged[k] = tidy[k]
+                        merged[k] = ([mark_ai_item(x) for x in tidy[k]] if isinstance(tidy[k], list)
+                                     else mark_ai_item(tidy[k]))
                 merged["tidy_engine"] = f"ollama:{model}"
                 merged["tidy_dropped"] = dropped
                 return merged

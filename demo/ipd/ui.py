@@ -113,6 +113,17 @@ def admit_demo_patient(store: IpdStore, *, name: str, mrn: str, dob: Optional[da
         return Outcome(False, "Patient name is required.")
     existing = find_patient_context(store, mrn)
     if existing and existing["active"]:
+        p, cur = existing["patient"], existing["bed"]
+        cur_ward, cur_bed = (cur.ward, cur.bed) if cur else ("", "")
+        same = (name.strip().lower() == (p.name or "").strip().lower()
+                and (ward or "").strip().lower() == cur_ward.strip().lower()
+                and (bed or "").strip().lower() == cur_bed.strip().lower())
+        if not same:  # never present another record's location as this admission
+            return Outcome(False, f"MRN {mrn} is already admitted as {p.name}, {cur_ward} / bed {cur_bed} "
+                                  f"(since {_fmt(existing['encounter'].admit_at)}). Your entries "
+                                  f"({name.strip()}, {(ward or '').strip()} / bed {(bed or '').strip()}) were "
+                                  "not saved and no new admission was made. Use a new DEMO- MRN for a new "
+                                  "patient, or open this MRN to continue its existing encounter.")
         return Outcome(True, "Patient already admitted — showing the existing active encounter (no new admission).",
                        data={"encounter_id": existing["encounter"].id, "duplicate": True})
     patient = existing["patient"] if existing else Patient(mrn=mrn, name=name.strip(), dob=dob, sex=(sex or "").strip())
@@ -390,13 +401,15 @@ def _page(st, store: IpdStore, ss) -> None:
         bed = a2.text_input("Bed", key="ipd_adm_bed", placeholder="12")
         by = a1.text_input("Admitting clinician ID (required)", key="ipd_adm_by", help=_ID_HELP)
         role = a2.selectbox("Admitting clinician role", sorted(r.value for r in ADMITTING_ROLES), key="ipd_adm_role")
+        # shown before the button so the outcome survives the post-write rerun
+        # (popping it after _act made the confirmation vanish immediately)
+        _flash(st, ss, "admit")
         if st.button("Admit patient", type="primary", key="ipd_admit"):
             o = admit_demo_patient(store, name=name, mrn=mrn, dob=dob, sex=sex, ward=ward, bed=bed,
                                    admitted_by=by, admitted_role=Role(role))
             if o.ok:
                 ss["ipd_mrn"] = mrn.strip()
             _act(st, ss, "admit", o)
-        _flash(st, ss, "admit")
 
     ctx = find_patient_context(store, ss["ipd_mrn"]) if ss["ipd_mrn"] else None
     with tabs[0]:

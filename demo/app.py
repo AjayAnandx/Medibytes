@@ -137,6 +137,26 @@ _EDITABLE_SLOTS = (
     "vitals_bp_sys", "vitals_bp_dia", "vitals_temp", "vitals_spo2",
     "allergy_line", "dx_text", "dx_code_box", "fu_text", "sign_line",
 )
+_DRUG_KEY = re.compile(r"^drug_(\d+)_(name|dose|unit|freq|duration)$")
+
+
+def _editable_keys(defaults):
+    """Form fields in order; medicine rows beyond the first two are included (none hidden)."""
+    keys = [k for k in _EDITABLE_SLOTS if k in defaults]
+    extra = sorted((k for k in defaults if _DRUG_KEY.match(k) and k not in _EDITABLE_SLOTS),
+                   key=lambda k: (int(_DRUG_KEY.match(k).group(1)),
+                                  ("name", "dose", "unit", "freq", "duration").index(_DRUG_KEY.match(k).group(2))))
+    at = keys.index("drug_1_duration") + 1 if "drug_1_duration" in keys else len(keys)
+    return keys[:at] + extra + keys[at:]
+
+
+def _label(sk):
+    m = _DRUG_KEY.match(sk)
+    if m and sk not in _SLOT_LABELS:
+        return f"Drug {int(m.group(1)) + 1} " + {"freq": "frequency"}.get(m.group(2), m.group(2))
+    return _SLOT_LABELS.get(sk, sk)
+
+
 _SLOT_LABELS = {
     "patient_name": "Patient name",
     "cc_blank": "Chief complaint",
@@ -226,9 +246,10 @@ def _apply_edits(orig_ej, edits, defaults=None):
         tgt["color"] = "YELLOW"
         tgt.pop("ai_suggested", None)
 
-    # drug rows -> active (non-negated) drugs, cap 4 (coords rows)
+    # drug rows -> active (non-negated) drugs; every row index present in edits
     active = [d for d in patched.get("drugs", []) if not d.get("negated")]
-    for i in (0, 1):
+    drug_idx = [int(m.group(1)) for m in (_DRUG_KEY.match(k) for k in edits) if m]
+    for i in range(max(drug_idx) + 1 if drug_idx else 0):
         cols = {"name": f"drug_{i}_name", "dose": f"drug_{i}_dose", "unit": f"drug_{i}_unit",
                 "freq": f"drug_{i}_freq", "duration": f"drug_{i}_duration"}
         if not any(k in edits for k in cols.values()):
@@ -443,10 +464,13 @@ def _supersede_stale_exports(job_id, cur_fp, run_id):
 def _reset_note_state(job_id):
     """New processing job: drop editor/verification state (audit history is kept)."""
     for k in (f"{job_id}_orig", f"{job_id}_edits", f"{job_id}_verified",
-              f"{job_id}_verified_fp", f"{job_id}_needs_reverify", f"{job_id}_run_id"):
+              f"{job_id}_verified_fp", f"{job_id}_needs_reverify", f"{job_id}_run_id",
+              f"{job_id}_verified_at"):
         st.session_state.pop(k, None)
     for sk in _EDITABLE_SLOTS:
         st.session_state.pop(f"{job_id}_{sk}", None)
+    for k in [k for k in st.session_state.keys() if str(k).startswith(f"{job_id}_drug_")]:
+        st.session_state.pop(k, None)
 
 
 def _ocr_tab(image_bytes, ocr):
@@ -563,14 +587,12 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                 st.markdown("**Correct the fields** — values prefilled by AI. Transcript (left tabs) is immutable proof.")
                 with st.form(f"correct_{job_id}"):
                     form_vals = {}
-                    for sk in _EDITABLE_SLOTS:
-                        if sk not in ai_defaults:
-                            continue
+                    for sk in _editable_keys(ai_defaults):
                         cur = saved_edits.get(sk, ai_defaults.get(sk, ""))
                         if sk in ("cc_blank", "allergy_line", "dx_text", "fu_text"):
-                            form_vals[sk] = st.text_area(_SLOT_LABELS.get(sk, sk), value=cur, key=f"{job_id}_{sk}")
+                            form_vals[sk] = st.text_area(_label(sk), value=cur, key=f"{job_id}_{sk}")
                         else:
-                            form_vals[sk] = st.text_input(_SLOT_LABELS.get(sk, sk), value=cur, key=f"{job_id}_{sk}")
+                            form_vals[sk] = st.text_input(_label(sk), value=cur, key=f"{job_id}_{sk}")
                     submitted = st.form_submit_button("Apply corrections", use_container_width=True)
                 if submitted:
                     # keep only real diffs vs AI original; audit only boxes changed vs the
@@ -644,8 +666,10 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                     st.session_state[ver_key] = True
                     st.session_state[fp_key] = cur_fp
                     st.session_state[stale_key] = False
+                    v_ts = datetime.datetime.now().isoformat(timespec="seconds")
+                    st.session_state[f"{job_id}_verified_at"] = v_ts  # shown on the verified note
                     _append_audit_events(job_id, [{
-                        "ts": datetime.datetime.now().isoformat(timespec="seconds"), "run_id": run_id,
+                        "ts": v_ts, "run_id": run_id,
                         "event": "verified", "note_fingerprint": cur_fp,
                         "audited_corrections": n_audit}], image)
                     st.rerun()
@@ -654,10 +678,17 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
 
             with col_prev:
                 try:
-                    prev = fill_template(cur_ej, tj)
+                    # the note states its own status: verified notes carry who/when/how many
+                    # corrections; everything else is an AI-assisted draft
+                    doc_status = ({"state": "verified", "fingerprint": cur_fp, "corrections": n_audit,
+                                   "verified_at": st.session_state.get(f"{job_id}_verified_at", "")}
+                                  if st.session_state[ver_key] else None)
+                    prev = fill_template(cur_ej, tj, doc_status=doc_status)
                     html = prev["html"] if isinstance(prev, dict) else prev
                     st.components.v1.html(html, height=620, scrolling=True)
-                    st.download_button("Download AI-original HTML", prebuilt_html or html,
+                    # AI original rendered with the current template (cached files may be stale)
+                    ai_html = fill_template(orig_ej, tj)["html"]
+                    st.download_button("Download AI-original HTML", ai_html,
                                        file_name=f"{job_id}.ai-original.html", mime="text/html")
                     if st.session_state[ver_key]:
                         st.download_button("Download CORRECTED HTML (verified)", html,

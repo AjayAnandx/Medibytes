@@ -25,13 +25,14 @@ def prefix_width_mm(prefix, font_pt=9):
 
 
 def fit_text(text, max_chars, overflow, font_pt=9):
-    """Returns (display_text, font_pt, truncated_flag). Never exceeds box."""
-    text = "" if text is None else str(text)
-    if overflow == "shrink" and len(text) > max_chars and len(text) > 0:
-        font_pt = max(6, round(9 * max_chars / len(text), 1))
-    if len(text) > max_chars and overflow in ("truncate", "shrink"):
-        return text[: max(0, max_chars - 1)] + "…", font_pt, True
-    return text, font_pt, len(text) > max_chars
+    """Returns (display_text, font_pt, truncated_flag).
+
+    The discharge note flows like a document (no fixed-size boxes), so a
+    clinical value is never cut: the full text is returned and the flag is
+    always False. max_chars/overflow in the coords file are kept only for
+    compatibility with older callers.
+    """
+    return ("" if text is None else str(text)), font_pt, False
 
 
 NIL_MISSING = "NIL"
@@ -57,7 +58,7 @@ def _fmt_dose(d):
     return dose_text, dose_color, unit_text, unit_color
 
 
-_TEMP_RE = r"\d{2,3}(?:\.\d{1,2})?\s*(?:degrees?(?:\s*(?:fahrenheit|celsius|F|C))?|°\s*[FC]?)"
+_TEMP_RE = r"\d{2,3}(?:\.\d{1,2})?\s*(?:degrees?(?:\s*(?:fahrenheit|celsius|F|C))?|°\s*[FC]?|fahrenheit|celsius)"
 _BP_RE = r"(\d{2,3}(?:\.\d{1,2})?)\s*(by|/|over|of)\s*(\d{2,3}(?:\.\d{1,2})?)"
 
 
@@ -97,12 +98,14 @@ def _parse_vital_text(t):
     m = re.search(_BP_RE, t)
     if m:
         return "bp", {"sys": m.group(1), "dia": m.group(3)}
-    if re.search(r"degree|temp|fahrenheit|°", t, re.I):
+    if re.search(r"degree|temp|fahrenheit|celsius|°", t, re.I):
         mt = re.search(_TEMP_RE, t, re.I)
-        return "temp", {"temp": (mt.group(0) if mt else t)[:20]}
+        # full reading, never "Fahren"; "Temp: 99.2 F" (bare unit letter) -> "99.2 F"
+        mt = mt or re.search(r"\d{2,3}(?:\.\d{1,2})?\s*°?\s*[FC]\b", t)
+        return "temp", {"temp": mt.group(0) if mt else t[:40]}
     if re.search(r"spo2|o2|%|oxygen|percent", t, re.I):
         ms = re.search(r"\d{2,3}(?:\.\d{1,2})?\s*(?:%|percent)?", t, re.I)
-        return "spo2", {"spo2": (ms.group(0).strip() if ms else t)[:20]}
+        return "spo2", {"spo2": ms.group(0).strip() if ms else t[:40]}
     return None
 
 
@@ -141,7 +144,7 @@ def regex_vital_readings(vitals, vtext=""):
             add("bp", {"sys": sys_v, "dia": dia_v}, src)
     if not any(out.values()) and vtext:
         for m in re.finditer(r"\b" + _TEMP_RE, vtext, re.I):
-            add("temp", {"temp": m.group(0)[:20]}, m.group(0))
+            add("temp", {"temp": m.group(0)}, m.group(0))
     return out
 
 
@@ -163,7 +166,7 @@ def regex_vital_boxes(vitals, vtext=""):
     if not any(boxes.values()) and vtext:
         mt = re.search(r"\b" + _TEMP_RE, vtext, re.I)
         if mt:
-            boxes["temp"] = mt.group(0)[:20]
+            boxes["temp"] = mt.group(0)
     return boxes
 
 
@@ -297,14 +300,26 @@ def resolve_slots(entities, transcript, template_id="er_discharge"):
                       "font_pt": fpt if fpt != 9 else "", "extra": ""})
         found += 1
 
-    # drug rows (max 4, stacked)
-    active = [d for d in ents.get("drugs", []) if not d.get("negated")][:4]
+    # drug rows: EVERY active medicine gets a row (never silently dropped);
+    # rows beyond the coords file reuse the last row's slot settings
+    active = [d for d in ents.get("drugs", []) if not d.get("negated")]
+    for i in range(2, len(active)):
+        for col in ("name", "dose", "unit", "freq", "duration"):
+            S.setdefault(f"drug_{i}_{col}", dict(S[f"drug_1_{col}"]))
+    drug_rows = []
     if not active:
-        slots.append(slot("drug_0_name", "NIL — no drug heard", "RED", "", chip=True))
-        for key in ("drug_0_dose", "drug_0_unit", "drug_0_freq", "drug_0_duration"):
-            if key in S:
-                slots.append(slot(key, NIL_MISSING, "RED", ""))
+        row = {"index": 0, "cells": {}}
+        row["cells"]["name"] = slot("drug_0_name", "NIL — no recognised medicine (see list below)"
+                                     if ents.get("unrecognised_meds") else "NIL — no medicine documented",
+                                     "RED", "", chip=True)
+        slots.append(row["cells"]["name"])
+        for col in ("dose", "unit", "freq", "duration"):
+            if f"drug_0_{col}" in S:
+                row["cells"][col] = slot(f"drug_0_{col}", NIL_MISSING, "RED", "")
+                slots.append(row["cells"][col])
+        drug_rows.append(row)
     for i, d in enumerate(active):
+        drug_rows.append({"index": i + 1, "cells": {}})
         dose_text, dose_color, unit_text, unit_color = _fmt_dose(d)
         vals = {"name": (d.get("name", "") or NIL_MISSING),
                 "dose": dose_text, "unit": unit_text,
@@ -325,6 +340,7 @@ def resolve_slots(entities, transcript, template_id="er_discharge"):
                      chip=(col == "duration" or vals[col] == NIL_MISSING),
                      ai=bool(d.get("ai_suggested")) or field in (d.get("ai_fields") or []))
             slots.append(s)
+            drug_rows[-1]["cells"][col] = s
 
     # vitals boxes: regex readings first (normalized text fallback), then
     # structured_vitals per field. structured_vitals holds LLM gap-fills (only
@@ -382,8 +398,9 @@ def resolve_slots(entities, transcript, template_id="er_discharge"):
     slots.append(slot("dx_code_box", dx.get("icd10") or "NIL", "YELLOW" if dx.get("icd10") else "RED", ""))
     dx_fu = fu.get("text", "")
     if "fu_text" in S:
-        slots.append(slot("fu_text", dx_fu or "NIL — no follow-up heard",
-                           "YELLOW" if dx_fu else "GREEN", "", ai=bool(fu.get("ai_suggested"))))
+        # missing follow-up instructions are a review item, not "fine" (GREEN)
+        slots.append(slot("fu_text", dx_fu or "NIL — no follow-up documented",
+                           "YELLOW", "", ai=bool(fu.get("ai_suggested"))))
     slots.append(slot("date_box", __import__("datetime").date.today().isoformat(), "GREEN", ""))
     slots.append(slot("sign_line", ents.get("signature") or "________________", "GREEN", ""))
 
@@ -408,7 +425,30 @@ def resolve_slots(entities, transcript, template_id="er_discharge"):
         misc.append(f"Follow-up: {dx_fu}"[:60])
     if misc:
         proof.append("; ".join(misc)[:180])
-
-    return {"slots": slots, "denied": denied[:3], "proof_lines": proof[:2],
+    # complete, untruncated review notes for the document (proof_lines is the legacy strip)
+    review_notes = [ln for ln in misc if not ln.startswith(("DENIED: ", "Follow-up: "))]
+    unrec = [u.get("text", "") for u in ents.get("unrecognised_meds", []) or [] if isinstance(u, dict)]
+    review_notes += [f"MEDICATION NOT RECOGNISED (check source, add manually if prescribed): \"{u}\""
+                     for u in unrec]
+    # vitals that were extracted but have no box on the note (e.g. heart rate) are listed, not dropped
+    other_vitals = [str(v.get("text", "")) for v in ents.get("vitals", []) or []
+                    if isinstance(v, dict) and re.search(r"\d", str(v.get("text", "")))
+                    and _parse_vital_text(str(v.get("text", ""))) is None and not v.get("ai_suggested")]
+    seen_sym, other_sym = set(), []
+    for s in ents.get("symptoms", []) or []:
+        if not isinstance(s, dict) or s.get("negated"):
+            continue
+        k = DEDUP.get(str(s.get("text", "")).lower(), str(s.get("text", "")).lower())
+        if k and k not in seen_sym:
+            seen_sym.add(k)
+            other_sym.append(k)
+    cc_key = next((x["text"] for x in slots if x["key"] == "cc_blank"), "")
+    return {"slots": slots, "denied": denied, "proof_lines": proof[:2],
             "multiple_vital_readings": multi,
-            "hpi_bg": full[:300], "coords_version": coords["coords_version"]}
+            "hpi_bg": full[:300], "coords_version": coords["coords_version"],
+            "drug_rows": drug_rows, "review_notes": review_notes,
+            "denied_allergies": [a.get("text", "") for a in av["denied"]],
+            "denied_symptoms": [x.get("text", "") for x in ents.get("symptoms", []) or []
+                                if isinstance(x, dict) and x.get("negated")],
+            "symptoms_other": [x for x in other_sym if x != cc_key],
+            "unrecognised_meds": unrec, "other_vitals": other_vitals}

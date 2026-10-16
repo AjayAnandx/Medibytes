@@ -414,7 +414,9 @@ def judge_fields(slots, ocr_text, lines, model="llama3.2:3b", timeout=120):
     full = ocr_text or ""
     by_key = {s["key"]: str(s.get("text", "")) for s in slots or []}
     line_text = {ln.get("line"): str(ln.get("text", "")) for ln in (lines or [])}
-    keys = [k for k in JUDGED_KEYS if k in by_key]
+    # every medicine row is judged (rows 3+ exist when more than two drugs were extracted)
+    keys = [k for k in JUDGED_KEYS if k in by_key] + sorted(
+        k for k in by_key if re.match(r"drug_\d+_(name|dose|unit|freq|duration)$", k) and k not in JUDGED_KEYS)
     missing = [k for k in keys
                if not by_key[k].strip() or by_key[k].strip().upper().startswith(("NIL", "NOT DOCUMENTED"))]
     filled = [(k, by_key[k]) for k in keys if k not in missing]

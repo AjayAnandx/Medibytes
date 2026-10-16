@@ -1,64 +1,135 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
+<title>ER Discharge Summary — {{ job_id }}</title>
 <style>
-@page{size:A4 portrait;margin:0}
-*{box-sizing:border-box}
-body{margin:0;background:#9CA3AF;font-family:Inter,Arial,"Noto Sans",sans-serif}
-.page{width:210mm;height:297mm;position:relative;overflow:hidden;background:#fff;margin:4mm auto}
-.bg{position:absolute;left:0;top:0;width:210mm;height:297mm;z-index:1}
-.hband{position:absolute;left:0;top:0;width:210mm;height:28mm;background:linear-gradient(135deg,#1E1B4B,#4F46E5);color:#fff;padding:3mm 12mm}
-.hband h1{margin:0;font-size:15pt;letter-spacing:1px}
-.hband .sub{font-size:8pt;opacity:.9;margin-top:1mm}
-.pband{position:absolute;left:12mm;top:30mm;width:186mm;height:10mm;background:#F5F3FF;border:0.3mm solid #E5E7EB;border-radius:2mm;font-size:8pt;color:#4B5563;padding:1.5mm 3mm}
-.card{position:absolute;left:12mm;width:186mm;background:#fff;border:0.3mm solid #E5E7EB;border-radius:2mm}
-.card h4{margin:0;padding:1mm 3mm;font-size:8pt;letter-spacing:1px;color:#4F46E5;border-bottom:0.3mm solid #E5E7EB}
-.card .body{padding:1.5mm 3mm;font-size:9pt;color:#9CA3AF}
-.dtable{position:absolute;left:12mm;top:86mm;width:186mm;border-collapse:collapse;z-index:1}
-.dtable th{background:#4F46E5;color:#fff;font-size:8pt;padding:1mm 2mm;text-align:left}
-.dtable tr:nth-child(even) td{background:#F9FAFB}
-.dtable td{border:0.2mm solid #E5E7EB;height:9mm;font-size:9pt}
-.dtable td.num{text-align:right;font-variant-numeric:tabular-nums}
-.slots{position:absolute;left:0;top:0;width:210mm;height:297mm;z-index:2}
-.slot{position:absolute;overflow:hidden;white-space:nowrap;font-size:9pt;line-height:3.5mm;padding:0 1mm;color:#111;border-left:1mm solid transparent}
-.slot[data-overflow=wrap]{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-overflow:ellipsis}
-.slot[data-overflow=truncate]{text-overflow:ellipsis}
-.slot.blank{border-bottom:0.4mm solid #4F46E5}
-.slot.redbox{border:0.4mm dashed #EF4444;border-radius:1mm}
-.slot.nil-red{color:#991B1B}
-.slot.nil-green{color:#6B7280}
-.slot small{font-size:7pt;color:#6B7280}
-.chip{position:absolute;font-size:6pt;color:#fff;border-radius:2mm;padding:0.3mm 1.5mm;z-index:3}
-.GREEN{background:#10B981}.YELLOW{background:#F59E0B}.RED{background:#EF4444}.DENIED{background:#9CA3AF}
-.gGREEN{border-left-color:#10B981}.gYELLOW{border-left-color:#F59E0B}.gRED{border-left-color:#EF4444}.gDENIED{border-left-color:#9CA3AF}
-.proof{position:absolute;left:12mm;top:270mm;width:186mm;font-size:7pt;font-style:italic;color:#555;z-index:2;line-height:3.2mm;max-height:7mm;overflow:hidden}
-.footer{position:absolute;left:12mm;top:283mm;width:186mm;font-size:7pt;color:#888;border-top:0.3mm solid #E5E7EB;padding-top:1mm;z-index:2}
-
-@media print {
-  @page { size: A4; margin: 0 }
-  body { background: #fff }
-  .page { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact }
-}
+@page { size: A4 portrait; margin: 14mm 13mm 15mm 13mm;
+  @bottom-left { content: "MediBytes ER discharge summary · {{ job_id }}"; font: 7.5pt Calibri, Arial, sans-serif; color: #6B7280; }
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 7.5pt Calibri, Arial, sans-serif; color: #6B7280; } }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; background: #E5E7EB; color: #1F2933;
+       font: 10pt/1.38 "Segoe UI", Calibri, Arial, "Noto Sans", sans-serif; }
+.doc { width: 184mm; margin: 6mm auto; background: #fff; padding: 10mm 11mm 8mm; }
+@media print { body { background: #fff; } .doc { width: auto; margin: 0; padding: 0; } }
+.head { border-bottom: 0.7mm solid #0E9384; padding-bottom: 2.5mm; display: flex; justify-content: space-between; gap: 6mm; }
+.head h1 { margin: 0; font-size: 17pt; letter-spacing: .02em; color: #0B2545; }
+.head .sub { font-size: 8.5pt; color: #5B6770; }
+.head .meta { font-size: 8pt; color: #5B6770; text-align: right; white-space: nowrap; }
+.status { margin: 3mm 0 2mm; padding: 2.2mm 3mm; border-radius: 1.5mm; font-size: 9pt; break-inside: avoid; }
+.status.draft { background: #FFFBEB; border: 0.35mm solid #F59E0B; color: #78350F; }
+.status.ok { background: #E6F4F2; border: 0.35mm solid #0E9384; color: #0B4F4A; }
+.status b { letter-spacing: .03em; }
+.legend { font-size: 7.8pt; color: #5B6770; margin-bottom: 1mm; }
+.legend span { display: inline-block; margin-right: 3mm; }
+.sw { display: inline-block; width: 2.4mm; height: 2.4mm; border-radius: .5mm; vertical-align: -0.2mm; margin-right: 1mm; }
+.sw.GREEN { background: #10B981; } .sw.YELLOW { background: #F59E0B; } .sw.RED { background: #EF4444; }
+section { margin-top: 3.2mm; break-inside: avoid; }
+section.flow { break-inside: auto; }
+h2 { margin: 0 0 1.3mm; font-size: 9.5pt; letter-spacing: .07em; text-transform: uppercase; color: #0B2545;
+     border-bottom: 0.3mm solid #C9D3DC; padding-bottom: .6mm; break-after: avoid; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5mm 5mm; }
+.kv { display: grid; grid-template-columns: 30mm 1fr; gap: 1mm 3mm; align-items: start; }
+.k { font-size: 8.5pt; color: #5B6770; padding-top: .6mm; }
+table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th { background: #0B2545; color: #fff; text-align: left; font-weight: 600; font-size: 8.2pt; padding: 1.2mm 1.6mm; }
+td { border-bottom: 0.25mm solid #E5E7EB; padding: .6mm .6mm; vertical-align: top; }
+td.n { width: 6mm; color: #5B6770; text-align: center; padding-top: 1.3mm; }
+.slot { border-left: 1.1mm solid transparent; padding: .6mm 1.6mm; overflow-wrap: anywhere; word-break: break-word; }
+.slot .v { white-space: pre-wrap; }
+.slot .note { display: block; font-size: 7.6pt; line-height: 1.3; margin-top: .4mm; }
+.gGREEN { border-left-color: #10B981; }
+.gYELLOW { border-left-color: #F59E0B; background: #FFFBEB; }
+.gYELLOW .note { color: #92400E; }
+.gRED { border-left-color: #EF4444; background: #FEF2F2; color: #991B1B; }
+.gRED .note { color: #991B1B; }
+.fill { display: flex; align-items: flex-end; gap: 2mm; padding: .6mm 1.6mm; }
+.fill .line { flex: 0 0 42mm; height: 4.6mm; border-bottom: 0.3mm solid #5B6770; }
+.fill .muted { white-space: nowrap; }
+.plain { padding: .6mm 1.6mm; }
+.muted { color: #5B6770; font-size: 8.5pt; }
+.source { white-space: pre-line; font-size: 8.6pt; color: #374151; background: #F8FAFC; border: .25mm solid #E5E7EB;
+          border-radius: 1mm; padding: 1.6mm 2.2mm; }
+ul.notes { margin: 0; padding-left: 4.5mm; font-size: 8.6pt; }
+ul.notes li { margin: .5mm 0; }
+.denied { font-size: 8.6pt; color: #374151; }
+.sign { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; margin-top: 1mm; }
+.unrec { margin-top: 1.5mm; padding: 1.4mm 2.2mm; border: .35mm solid #EF4444; background: #FEF2F2;
+         color: #991B1B; border-radius: 1mm; font-size: 8.8pt; break-inside: avoid; }
+.unrec ul { margin: .6mm 0 0; padding-left: 4.5mm; }
+.foot { margin-top: 5mm; border-top: .3mm solid #C9D3DC; padding-top: 1.4mm; font-size: 7.6pt; color: #6B7280; break-inside: avoid; }
 </style></head><body>
-<div class="page">
-<div class="bg">
-<div class="hband"><h1>CITY CARE HOSPITAL — ER DISCHARGE</h1>
-<div class="sub">{{ job_id }} | lang {{ language }} | {{ template_id }}:{{ template_version }} | {{ date }} | DEMO — verify before clinical use</div></div>
-<div class="pband">Patient: {% if slots|selectattr("key", "equalto", "patient_name")|list %}<span style="display:inline-block;width:42mm"></span>{% else %}________________{% endif %} &nbsp;&nbsp; Age/Sex: ______ &nbsp;&nbsp; Visit ID: {{ job_id }} &nbsp;&nbsp; Physician: ________________</div>
-<div class="card" style="top:42mm;height:16mm"><h4>CHIEF COMPLAINT</h4><div class="body"></div></div>
-<div class="card" style="top:60mm;height:24mm"><h4>HISTORY OF PRESENT ILLNESS</h4><div class="body">{{ hpi_bg }}</div></div>
-<table class="dtable"><tr><th style="width:52mm">Medicine</th><th style="width:22mm;text-align:right">Dose</th><th style="width:14mm">Unit</th><th style="width:38mm">Frequency</th><th style="width:25mm">Duration</th><th>Conf</th></tr></table>
-<div class="card" style="top:132mm;height:14mm"><h4>VITALS</h4><div class="body"></div></div>
-<div class="card" style="top:148mm;height:12mm"><h4>ALLERGIES</h4><div class="body"></div></div>
-<div class="card" style="top:162mm;height:16mm"><h4>DIAGNOSIS (ICD-10)</h4><div class="body">[PHYSICIAN TO CONFIRM]</div></div>
-<div class="card" style="top:250mm;height:16mm"><h4>SIGNATURE</h4><div class="body">Physician sign ________________ &nbsp;&nbsp;&nbsp;&nbsp; Date ______</div></div>
+{%- macro val(key, fallback="", neutral=false) -%}
+{%- set s = S.get(key) -%}
+{%- if s and neutral -%}<div class="plain"><span class="v">{{ s.text }}</span></div>
+{%- elif s -%}
+<div class="slot g{{ s.color }} {{ s.extra }}" title="{{ s.color }} {{ s.confidence }}"><span class="v">{{ s.text }}</span>{% if s.note %}<small class="note">{{ s.note }}</small>{% endif %}</div>
+{%- else -%}<div class="slot"><span class="v muted">{{ fallback }}</span></div>{%- endif -%}
+{%- endmacro -%}
+{%- macro cell(c) -%}
+{%- if c -%}<div class="slot g{{ c.color }} {{ c.extra }}" title="{{ c.color }} {{ c.confidence }}"><span class="v">{{ c.text }}</span>{% if c.note %}<small class="note">{{ c.note }}</small>{% endif %}</div>{%- endif -%}
+{%- endmacro -%}
+<div class="doc">
+<div class="head">
+  <div><h1>ER Discharge Summary</h1>
+  <div class="sub">MediBytes demonstration prototype · AI-assisted documentation draft</div></div>
+  <div class="meta">Visit / job: {{ job_id }}<br>Generated: {{ date }}<br>Source: {{ source_label }} · {{ language }}<br>Template {{ template_id }} v{{ template_version }}</div>
 </div>
-<div class="slots">
-{% for s in slots %}<div class="slot g{{ s.color }} {{ s.extra }}" data-overflow="{{ s.overflow }}" style="left:{{ s.x }}mm;top:{{ s.y }}mm;width:{{ s.w }}mm;{% if s.h %}height:{{ s.h }}mm;{% endif %}text-align:{{ s.align }};{% if s.font_pt %}font-size:{{ s.font_pt }}pt;{% endif %}" title="{{ s.color }} {{ s.confidence }}">{{ s.text }}{% if s.note %}<br><small>{{ s.note }}</small>{% endif %}</div>
-{% if s.chip %}<span class="chip {{ s.color }}" style="left:{{ s.chip_x }}mm;top:{{ s.y }}mm">{{ s.color }} {{ s.confidence }}</span>{% endif %}
-{% endfor %}
-{% for d in denied %}<div class="slot gDENIED" data-overflow="truncate" style="left:{{ d.x }}mm;top:{{ d.y }}mm;width:{{ d.w }}mm;text-align:left;background:#F3F4F6;color:#6B7280;font-size:7pt;" title="DENIED excluded">DENIED: {{ d.text }}</div>{% endfor %}
+
+{% if doc_status.state == "verified" %}
+<div class="status ok"><b>CLINICIAN-VERIFIED (DEMO)</b> — verified {{ doc_status.verified_at }} · {{ doc_status.corrections }} audited correction(s) in this run · note fingerprint {{ doc_status.fingerprint }}.
+AI-suggested values keep their label. Demo with synthetic data — not for clinical use.</div>
+{% else %}
+<div class="status draft"><b>AI-ASSISTED DRAFT</b> — awaiting clinician verification. Not for clinical use. Review summary: {{ review.red }} missing/conflicting (red) · {{ review.yellow }} to review (yellow) · {{ review.ai }} AI-suggested.</div>
+{% endif %}
+<div class="legend"><span><i class="sw GREEN"></i>read from the source by rules</span><span><i class="sw YELLOW"></i>clinician review needed (incl. AI-suggested)</span><span><i class="sw RED"></i>missing or conflicting — resolve before verification</span></div>
+
+<section><h2>Patient</h2>
+<div class="grid">
+  <div class="kv"><div class="k">Name</div>{% if S.get("patient_name") %}{{ val("patient_name") }}{% else %}<div class="fill"><span class="line"></span><span class="muted">not captured</span></div>{% endif %}</div>
+  <div class="kv"><div class="k">Age / sex</div><div class="fill"><span class="line"></span><span class="muted">not captured</span></div></div>
+</div></section>
+
+<section><h2>Presenting complaint</h2>
+<div class="kv"><div class="k">Chief complaint</div>{{ val("cc_blank") }}
+{% if symptoms_other %}<div class="k">Other symptoms</div><div class="slot gYELLOW"><span class="v">{{ symptoms_other|join(", ") }}</span></div>{% endif %}
+{% if denied_symptoms %}<div class="k">Denied symptoms</div><div class="denied slot">{{ denied_symptoms|join(", ") }}</div>{% endif %}
+</div></section>
+
+<section class="flow"><h2>Medications ({{ n_drugs }})</h2>
+<table><thead><tr><th>#</th><th style="width:28%">Medicine</th><th style="width:11%">Dose</th><th style="width:9%">Unit</th><th style="width:25%">Frequency</th><th>Duration</th></tr></thead>
+<tbody>{% for r in drug_rows %}<tr><td class="n">{{ r.index or "—" }}</td><td>{{ cell(r.cells.name) }}</td><td>{{ cell(r.cells.dose) }}</td><td>{{ cell(r.cells.unit) }}</td><td>{{ cell(r.cells.freq) }}</td><td>{{ cell(r.cells.duration) }}</td></tr>
+{% endfor %}</tbody></table>
+{% if unrecognised_meds %}<div class="unrec"><b>Possible medications not recognised</b> — a dose was stated but the medicine name was not recognised. Check the source and add manually if prescribed:
+<ul>{% for u in unrecognised_meds %}<li>“{{ u }}”</li>{% endfor %}</ul></div>{% endif %}</section>
+
+<section><h2>Vital signs</h2>
+<div class="grid">
+  <div class="kv"><div class="k">BP systolic (mmHg)</div>{{ val("vitals_bp_sys") }}</div>
+  <div class="kv"><div class="k">BP diastolic (mmHg)</div>{{ val("vitals_bp_dia") }}</div>
+  <div class="kv"><div class="k">Temperature</div>{{ val("vitals_temp") }}</div>
+  <div class="kv"><div class="k">SpO2</div>{{ val("vitals_spo2") }}</div>
 </div>
-<div class="proof">{% for p in proof_lines %}{{ p }}<br>{% endfor %}</div>
-<div class="footer">Demo — not for clinical use. Human verify required. No 99% gate. &nbsp;&nbsp; NIL RED = missing, fix before verify | NIL GREEN = none heard, ok. &nbsp;&nbsp; Page 1/1 (single A4 strictly)</div>
+{% if other_vitals %}<div class="kv" style="margin-top:1mm"><div class="k">Other recorded vitals</div><div class="slot gYELLOW"><span class="v">{{ other_vitals|join("; ") }}</span></div></div>{% endif %}</section>
+
+<section><h2>Allergies</h2>
+<div class="kv"><div class="k">Allergy status</div>{{ val("allergy_line") }}
+{% if denied_allergies %}<div class="k">Documented as not allergic</div><div class="denied slot">{{ denied_allergies|join(", ") }}</div>{% endif %}
+</div></section>
+
+<section><h2>Diagnosis and follow-up</h2>
+<div class="kv"><div class="k">Diagnosis</div>{{ val("dx_text") }}<div class="k">ICD-10 code</div>{{ val("dx_code_box") }}<div class="k">Follow-up</div>{{ val("fu_text") }}</div></section>
+
+{% if review_notes %}<section><h2>Items for clinician review</h2>
+<ul class="notes">{% for n in review_notes %}<li>{{ n }}</li>{% endfor %}</ul></section>{% endif %}
+
+<section class="flow"><h2>Source {{ "OCR text" if source_label == "image OCR" else "transcript" }} (verbatim)</h2>
+<div class="source">{{ source_text }}</div></section>
+
+<section><h2>Clinician sign-off</h2>
+<div class="sign"><div class="kv"><div class="k">Signature</div>{{ val("sign_line", neutral=true) }}</div><div class="kv"><div class="k">Note generated</div>{{ val("date_box", neutral=true) }}</div></div></section>
+
+<div class="foot">Generated by MediBytes (demonstration prototype) from synthetic input. Every value must be checked by a clinician before any use; red items must be completed or resolved. Corrected exports are only issued after clinician verification in the application.</div>
 </div>
 </body></html>

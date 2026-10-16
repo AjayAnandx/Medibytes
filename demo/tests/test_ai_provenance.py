@@ -42,6 +42,17 @@ def _slots(ej, tj):
     return {s["key"]: s for s in resolve_slots(ej, tj)["slots"]}
 
 
+def _docx_med_cell(doc, value):
+    """Text of the DOCX medication-table cell holding `value` (structured DOCX layout)."""
+    for t in doc.tables:
+        if t.rows and t.rows[0].cells[1].text == "Medicine":
+            for row in t.rows[1:]:
+                for c in row.cells:
+                    if value in c.text:
+                        return c.text
+    raise AssertionError(f"{value!r} not found in the DOCX medication table")
+
+
 def _is_ai(slot):
     return AI in slot["note"].lower()
 
@@ -192,9 +203,8 @@ def test_ai_marker_in_html_and_docx():
     i = html.index("twice daily")
     cell = html[html.rfind("<div", 0, i):html.find("</div>", i)]
     assert "gYELLOW" in cell and "AI-suggested" in cell
-    docx = "\n".join(p.text for p in Document(io.BytesIO(out["docx_bytes"])).paragraphs)
-    line = next(ln for ln in docx.splitlines() if ln.startswith("[drug_0_freq]"))
-    assert "twice daily" in line and "AI-suggested" in line
+    cell = _docx_med_cell(Document(io.BytesIO(out["docx_bytes"])), "twice daily")
+    assert "AI-suggested" in cell
 
 
 # ---- app: provenance survives reruns, corrections, Verify and verified exports ----
@@ -272,5 +282,5 @@ def test_app_ai_marker_survives_rerun_verify_and_export(tmp_path, monkeypatch):
     i = html.index("twice daily")
     cell = html[html.rfind("<div", 0, i):html.find("</div>", i)]
     assert "gYELLOW" in cell and "AI-suggested" in cell  # provenance kept in the verified export
-    docx = "\n".join(p.text for p in Document(str(out / "exports" / f"{job}.corrected.docx")).paragraphs)
-    assert "AI-suggested" in next(ln for ln in docx.splitlines() if ln.startswith("[drug_0_freq]"))
+    assert "AI-suggested" in _docx_med_cell(Document(str(out / "exports" / f"{job}.corrected.docx")),
+                                             "twice daily")

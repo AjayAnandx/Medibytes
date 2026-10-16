@@ -1,6 +1,6 @@
 {
   "id": "er_discharge",
-  "version": "0.2.0-premium",
+  "version": "0.3.0-document",
   "layout": "er_discharge.premium.html.j2",
   "coords": "er_discharge.coords.json",
   "page": "A4 single strictly",

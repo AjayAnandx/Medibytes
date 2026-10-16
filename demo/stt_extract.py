@@ -32,21 +32,24 @@ SYMPTOMS = ["fever", "cough", "chest pain", "headache", "vomiting", "diarrhea",
             "breathlessness", "sore throat", "cold", "pain", "bukhar", "khansi"]
 # Numeral-tuned vitals: decimals, 'of' separator, long-form 'blood pressure',
 # temp with F/C units, SpO2 with room-air mishear tolerance.
-TEMP_NUM = r"\d{2,3}(?:\.\d{1,2})?\s*(?:degrees?(?:\s*(?:fahrenheit|celsius|F|C))?|°\s*[FC]?)"
+TEMP_NUM = r"\d{2,3}(?:\.\d{1,2})?\s*(?:degrees?(?:\s*(?:fahrenheit|celsius|F|C))?|°\s*[FC]?|fahrenheit|celsius)"
 VITALS_PAT = re.compile(
     r"((?:BP|B[\s-]*P|blood pressure)\s*(?:is\s+(?:sitting\s+at|around|about|of)?\s*)?\d{2,3}(?:\.\d{1,2})?\s*(by|/|over|of)\s*\d{2,3}(?:\.\d{1,2})?"
     r"|\b" + TEMP_NUM + r"\b"
     r"|SpO2\s*\d{2,3}(?:\.\d{1,2})?%?"
     r"|\b\d{2,3}(?:\.\d{1,2})?\s*(?:%|percent)\s*(?:on\s+(?:room\s*air|rhoomair))?"
     r"|oxygen saturation[^\d.]{0,10}\d{2,3}(?:\.\d{1,2})?\s*%?"
-    r"|pulse\s*\d{2,3}"
+    r"|(?:pulse(?:\s*rate)?|heart\s*rate|HR)\s*(?:of|is|at)?\s*\d{2,3}"
     r"|temp[^\d.]{0,10}" + TEMP_NUM + r")",
     re.I,
 )
 NEG_PAT = re.compile(r"\b(no|not|denies|denied|denying|without|never|neither|nor|negative for|no known|don't|doesn't|aren't|isn't|wasn't|weren't|can't|cannot)\b", re.I)
 DENIED_SYMPTOMS = ("chest pain", "breathlessness")
 FREQ_PAT = (r"BID|OD|TDS|QID|once daily|twice daily|thrice daily|daily|B\.I\.D\.?"
-            r"|twice a day|two times a day|thrice a day|three times a day"
+            r"|once a day|twice a day|two times a day|thrice a day|three times a day"
+            r"|four times a day|four times daily|at night|at bedtime"
+            # extraction runs on digitised text: "three times a day" arrives as "3 times a day"
+            r"|\d+\s*times?\s+(?:a|per)\s+day|\d+\s*times\s+daily"
             r"|every\s+\d+\s*(?:hours?|hrs?|minutes?|mins?)|q\d+h"
             r"|as needed|as\s+required|PRN|S\.?O\.?S\.?|stat|BD|TID")
 DRUG_CTX = re.compile(
@@ -55,6 +58,10 @@ DRUG_CTX = re.compile(
     r"(?:[^.]{0,60}?(?P<dur>\d+)\s*(?P<durunit>days?|din\b|weeks?|months?|hours?|hrs?|minutes?|mins?))?",
     re.I,
 )
+# Words that can sit between a drug name and its dose ("thromise in 500 mg", "Tab. X 500 mg")
+DOSE_FILLER = {"in", "of", "the", "a", "an", "and", "tab", "tabs", "tablet", "tablets", "cap", "caps",
+               "capsule", "capsules", "syrup", "inj", "injection", "dose", "give", "start", "starting", "on"}
+FUZZY_MIN = 0.8  # sound-alike drug match threshold (genuine misspellings scored >= 0.82)
 # Split multi-drug sentences: "amox ... along with ibuprofen ..." -> two clauses
 DRUG_SPLIT_PAT = re.compile(r"\s+(?:along with|alongwith|plus|and also|\+)\s+", re.I)
 # source="image": an OCR line holding ONLY a frequency (optionally + duration),
@@ -325,6 +332,7 @@ def extract_entities(text, normalized_en, segments, source="audio"):
             alias_to_canonical[a.lower()] = d["name"].lower()
 
     drugs, symptoms, vitals, allergies, negations = [], [], [], [], []
+    unrecognised = []  # dose mentions whose medicine name is not recognised (review items)
     # cross-sentence join: "paracetamol,\n500 mg" -> "paracetamol 500 mg"
     # also "ibuprofen, for 100 mg" -> "ibuprofen for 100 mg" (second-drug clause)
     if image:  # same join, but never across an OCR line break
@@ -349,23 +357,34 @@ def extract_entities(text, normalized_en, segments, source="audio"):
         for clause in drug_clauses:
             for m in DRUG_CTX.finditer(clause):
                 rawm = m.group("name").lower()
+                if rawm in DOSE_FILLER:  # "thromise in 500 mg", "Tab. X 500 mg": use the word before
+                    prev = [w for w in re.findall(r"[A-Za-z]+", clause[:m.start("name")])
+                            if w.lower() not in DOSE_FILLER]
+                    rawm = prev[-1].lower() if prev else rawm
                 canon = alias_to_canonical.get(rawm)
                 fuzzy_note = ""
                 if canon is None and rawm not in drugs_known:
-                    if image:
-                        continue  # OCR: exact drug-list/alias match only, no guessing
-                    # fuzzy sound-alike fallback: asitromaisin -> azithromycin (difflib stand-in)
-                    import difflib
                     best, score = None, 0
-                    for known in list(drugs_known) + list(alias_to_canonical.keys()):
-                        sc = difflib.SequenceMatcher(None, rawm, known).ratio()
-                        if sc > score:
-                            best, score = known, sc
-                    if score >= (0.55 if len(rawm) >= 8 else 0.6):
+                    if not image:  # OCR: exact drug-list/alias match only, no guessing
+                        # fuzzy sound-alike fallback: asitromaisin -> azithromycin (difflib stand-in);
+                        # 0.8 keeps genuine misspellings (>=0.82) and rejects different drugs
+                        # (e.g. "peridine" -> cetirizine scored 0.71)
+                        import difflib
+                        for known in list(drugs_known) + list(alias_to_canonical.keys()):
+                            sc = difflib.SequenceMatcher(None, rawm, known).ratio()
+                            if sc > score:
+                                best, score = known, sc
+                    if best is not None and score >= FUZZY_MIN:
                         canon = alias_to_canonical.get(best, best)
                         fuzzy_note = f"fuzzy {rawm}->{canon} ({score:.2f})"
                     else:
-                        continue  # skip non-drug words; drug_list is the mini-RxNorm
+                        # a dose was stated but the medicine is not recognised: never drop it
+                        # silently - keep the words for the clinician (shown as a review item)
+                        words = re.findall(r"\S+", clause[:m.start()])[-3:]
+                        excerpt = " ".join(words + [m.group(0).strip()]).strip(" ,;")
+                        if not neg and not any(u["text"] == excerpt for u in unrecognised):
+                            unrecognised.append({"text": excerpt, "source_sentence": proof_sent})
+                        continue
                 if neg and rawm in ("penicillin", "sulfa", "sulpha"):
                     allergies.append({"text": rawm, "negated": True, "confidence": 0.9,
                                       "source_sentence": proof_sent,
@@ -449,6 +468,18 @@ def extract_entities(text, normalized_en, segments, source="audio"):
         if NKA_PAT.search(sent):  # explicit "no known allergies" statement
             negations.append(dict(NKA_MARKER))
 
+    # image only: an OCR line with a dose unit that produced no medicine row and no
+    # unrecognised-medicine entry (e.g. digits misread: "Nitrofurantoin 1DD mg") is
+    # kept as a review item instead of disappearing into the source text
+    if image:
+        used = [str(d.get("source_sentence", "")) for d in drugs] + \
+               [str(u.get("source_sentence", "")) for u in unrecognised]
+        for ln in (x.strip() for x in text.split("\n")):
+            if ln and re.search(r"\b(?:mg|mcg|ml|units?|tabs?|tablets?|caps?)\b", ln, re.I) \
+                    and not any(ln and (ln in u or u in ln) for u in used if u) and not _negated(ln) \
+                    and not ALLERGY_LIST_PAT.search(ln):
+                unrecognised.append({"text": ln, "source_sentence": ln, "note": "medication line not parsed"})
+
     # image only: frequency printed alone on the next OCR line -> attach verbatim
     # to the drug above (row YELLOW + note: the clinician checks the pairing)
     if image:
@@ -474,7 +505,8 @@ def extract_entities(text, normalized_en, segments, source="audio"):
     for scope in scopes:
         m = re.search(r"diagnosis\s*[—–\-:]*\s*([^.]+)", scope, re.I)
         if m and m.group(1).strip():
-            diagnosis = {"text": m.group(1).strip(), "icd10": "", "confidence": 0.85,
+            diagnosis = {"text": re.sub(r"^(?:is|was|of)\s+", "", m.group(1).strip(), flags=re.I),
+                         "icd10": "", "confidence": 0.85,
                          "color": "YELLOW", "source_sentence": m.group(0).strip()}
             break
     for scope in scopes:
@@ -517,6 +549,8 @@ def extract_entities(text, normalized_en, segments, source="audio"):
     out = {"drugs": drugs, "symptoms": symptoms, "vitals": vitals,
            "allergies": allergies, "negations": negations,
            "diagnosis": diagnosis, "followup": followup}
+    if unrecognised:  # only when present: output shape otherwise unchanged
+        out["unrecognised_meds"] = unrecognised
     if patient:  # image source only; audio output shape unchanged
         out["patient"] = patient
     return out

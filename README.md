@@ -24,7 +24,7 @@ drugs/symptoms/vitals/allergies [4] Extract  stt_extract.extract_entities (regex
   │   + optional Ollama tidy/primary (llama3.2:3b default, regex fallback)
   │ entities/{job}.entities.json
   ▼
-ER note  [5] Template  fill_template.fill_template (Jinja2 premium A4 HTML + python-docx)
+ER note  [5] Template  fill_template.fill_template (Jinja2 print-ready A4 HTML + structured python-docx)
     exports/{job}.html + exports/{job}.docx
       ▲
       │  UI: demo/app.py (Streamlit) — correct fields in side-form → Verify → corrected exports
@@ -63,9 +63,12 @@ one-command runner = `run_demo.py`.
 
 ### Printing to PDF (snapshot only, after Verify)
 
-Open the **corrected HTML file** directly in Chrome → `Ctrl+P` → paper **A4**,
-margins **None**, **Background graphics ON** → Save as PDF. Do not print the
-Streamlit iframe (it scales the A4 page).
+Open the **corrected HTML file** directly in Chrome/Edge → `Ctrl+P` → paper **A4**,
+margins **Default**, **Background graphics ON** → Save as PDF. The note flows over as
+many A4 pages as needed (every medicine is listed; the medication table header repeats
+on continuation pages; footer shows "Page X of Y"). Do not print the Streamlit iframe.
+The note states its status: **AI-ASSISTED DRAFT** or **CLINICIAN-VERIFIED (DEMO)** with
+time, correction count and note fingerprint.
 
 ---
 
@@ -84,12 +87,12 @@ medibytes project/
     stt_extract.py               # Stages 2+3+4 (regex core)
     llm_extract.py               # Ollama primary/tidy (gap-fill only)
     fill_template.py             # Stage 5 (classic + premium + editable DOCX)
-    coords.py                    # entity words → absolute mm slots (single A4)
+    coords.py                    # entity values → note fields, colours, review notes
     requirements-demo.txt        # pinned deps (Python 3.13 Windows-safe)
     templates/
       er_discharge.json          # form spec (id, version, fields)
       er_discharge.coords.json   # slot x/y/w/h per field (A4 210×297mm)
-      er_discharge.premium.html.j2  # premium A4 layout (slots overlay)
+      er_discharge.premium.html.j2  # A4 discharge-note layout (flows over pages)
       er_discharge.html.j2       # classic fallback layout
       er_discharge.schema.json   # entities validation schema
     assets/

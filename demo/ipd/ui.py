@@ -526,6 +526,8 @@ def _page(st, store: IpdStore, ss) -> None:
         g1, g2 = st.columns(2)
         gby = g1.text_input("Clinician ID (required)", key="ipd_gen_by", help=_ID_HELP)
         grole = g2.selectbox("Clinician role", sorted(r.value for r in APPROVER_ROLES), key="ipd_gen_role")
+        # shown before the buttons so the outcome survives the post-write rerun
+        _flash(st, ss, "note")
         if note is None:
             if st.button("Generate Progress Note", type="primary", key="ipd_generate"):
                 _act(st, ss, "note", generate_note(store, enc.id, generated_by=gby, generated_role=Role(grole)))
@@ -544,12 +546,12 @@ def _page(st, store: IpdStore, ss) -> None:
                          disabled=not (note["stale"] or note["n_events_after_window"])):
                 _act(st, ss, "note", regenerate_note(store, note["document"].id, generated_by=gby,
                                                      generated_role=Role(grole), extend_window=True))
-        _flash(st, ss, "note")
         if note is not None:
             _note_view(st, note)
 
     # ---------------- E. approval
     with tabs[4]:
+        _flash(st, ss, "approve")  # before the button: survives the post-write rerun
         if note is None:
             st.info("Generate a progress note first (tab D).")
         else:
@@ -570,7 +572,6 @@ def _page(st, store: IpdStore, ss) -> None:
                 if st.button("Approve Current Version", type="primary", key="ipd_approve"):
                     _act(st, ss, "approve", approve_note(store, note["document"].id, version=v.version,
                                                          approver_id=aby, approver_role=Role(arole)))
-            _flash(st, ss, "approve")
 
     # ---------------- F. export
     with tabs[5]:

@@ -171,6 +171,9 @@ def regex_vital_boxes(vitals, vtext=""):
 
 
 AI_NOTE = "AI-suggested - verify"  # provenance label for unreviewed AI values
+# clinician resolutions of an unrecognised medication mention (editor choices)
+UNREC_ADDED = "prescribed, added to the medication list"
+UNREC_DISMISSED = "not a prescribed medicine"
 ALLERGY_NKA_TEXT = "No known allergies (documented) - verify"
 ALLERGY_MISSING_TEXT = "NOT DOCUMENTED - confirm allergy status"
 NKA_MARKER_SPAN = "No allergy"  # stt_extract.NKA_MARKER: explicit NKA statement
@@ -427,13 +430,38 @@ def resolve_slots(entities, transcript, template_id="er_discharge"):
         proof.append("; ".join(misc)[:180])
     # complete, untruncated review notes for the document (proof_lines is the legacy strip)
     review_notes = [ln for ln in misc if not ln.startswith(("DENIED: ", "Follow-up: "))]
-    unrec = [u.get("text", "") for u in ents.get("unrecognised_meds", []) or [] if isinstance(u, dict)]
-    review_notes += [f"MEDICATION NOT RECOGNISED (check source, add manually if prescribed): \"{u}\""
-                     for u in unrec]
-    # vitals that were extracted but have no box on the note (e.g. heart rate) are listed, not dropped
-    other_vitals = [str(v.get("text", "")) for v in ents.get("vitals", []) or []
-                    if isinstance(v, dict) and re.search(r"\d", str(v.get("text", "")))
-                    and _parse_vital_text(str(v.get("text", ""))) is None and not v.get("ai_suggested")]
+    # unrecognised medication mentions: each is a RED slot (blocks Verify) until the
+    # clinician explicitly resolves it - "added" only counts when a medicine row was
+    # actually added by hand; "dismissed" = not a prescribed medicine
+    unrec_ents = [u for u in ents.get("unrecognised_meds", []) or [] if isinstance(u, dict)]
+    unrec = [u.get("text", "") for u in unrec_ents]
+    n_added_rows = sum(1 for d in active if d.get("note") == "human-added")
+    n_added_ok, unrec_items = 0, []
+    for i, u in enumerate(unrec_ents):
+        S.setdefault(f"unrec_{i}", dict(S["dx_text"]))
+        res, text = u.get("resolution"), u.get("text", "")
+        if res == "added" and n_added_ok < n_added_rows:
+            n_added_ok += 1
+            disp, color, note = f"{text} → RESOLVED: {UNREC_ADDED}", "YELLOW", "resolved by clinician"
+        elif res == "dismissed":
+            disp, color, note = f"{text} → RESOLVED: {UNREC_DISMISSED}", "YELLOW", "resolved by clinician"
+        elif res == "added":
+            disp, color, note = text, "RED", "marked as added, but no medicine row was added - add it above"
+        else:
+            disp, color, note = text, "RED", "unrecognised medication - clinician must resolve"
+        s = slot(f"unrec_{i}", disp, color, "", note)
+        slots.append(s)
+        unrec_items.append(s)
+        review_notes.append(f"MEDICATION NOT RECOGNISED (check source, add manually if prescribed): \"{text}\""
+                            if color == "RED" else f"Unrecognised medication mention \"{text}\" — {disp.split('→ ', 1)[1]}")
+    # vitals that were extracted but have no box on the note (e.g. heart rate) are listed, not dropped;
+    # a clinician-entered list (editor field) replaces the extracted one
+    if isinstance(ents.get("other_vitals_human"), list):
+        other_vitals = [str(x) for x in ents["other_vitals_human"] if str(x).strip()]
+    else:
+        other_vitals = [str(v.get("text", "")) for v in ents.get("vitals", []) or []
+                        if isinstance(v, dict) and re.search(r"\d", str(v.get("text", "")))
+                        and _parse_vital_text(str(v.get("text", ""))) is None and not v.get("ai_suggested")]
     seen_sym, other_sym = set(), []
     for s in ents.get("symptoms", []) or []:
         if not isinstance(s, dict) or s.get("negated"):
@@ -451,4 +479,4 @@ def resolve_slots(entities, transcript, template_id="er_discharge"):
             "denied_symptoms": [x.get("text", "") for x in ents.get("symptoms", []) or []
                                 if isinstance(x, dict) and x.get("negated")],
             "symptoms_other": [x for x in other_sym if x != cc_key],
-            "unrecognised_meds": unrec, "other_vitals": other_vitals}
+            "unrecognised_meds": unrec, "unrecognised_items": unrec_items, "other_vitals": other_vitals}

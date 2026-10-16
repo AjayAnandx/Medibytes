@@ -158,11 +158,11 @@ Heart rate in a round note now becomes a `pulse` vital event. The real IPD datab
 
 ## 12. Unresolved limitations
 
-- Unrecognised medicines block Verify only when no recognised medicine exists (red NIL row). Otherwise they appear as a red review box and a review item but do not block.
+- ~~Unrecognised medicines block Verify only when no recognised medicine exists.~~ **Fixed in Part 2 (P1).**
+- ~~"Other recorded vitals" not editable.~~ **Fixed in Part 2 (P2).**
 - The drug vocabulary is about 30 names; anything else is surfaced as "not recognised", not matched.
 - The "not recognised" excerpt includes surrounding words from the sentence.
 - STT/OCR accuracy is unmeasured; handwriting testing used a font, not real handwriting.
-- "Other recorded vitals" (e.g. heart rate) are shown but not editable in the correction form.
 - With many medicines the correction form becomes long (5 fields per medicine).
 - Cached demo samples in `demo/exports` were not regenerated with the new template.
 - IPD has no discharge workflow and no bed-occupancy check.
@@ -189,3 +189,68 @@ The ER discharge note was the main risk. It silently printed only two medicines,
 Real faster-whisper and EasyOCR runs on synthetic inputs found further extraction gaps (frequencies, Fahrenheit, heart rate, misread OCR doses), which are also fixed. 40 regression tests were added; the suite is 482 passed with 0 failures.
 
 Still outstanding: a visual DOCX check in Word, an interactive browser check, LLM paths with a real model, and any measured accuracy. The system remains a demonstration prototype.
+
+---
+
+# Part 2 — follow-up session (same day, from commit `b795478`)
+
+Time-boxed to about 60 minutes. Order: clinical safety → discharge visual check → browser smoke tests → full suite → report and push.
+
+## P. Bugs fixed
+
+| ID | Sev. | Bug | Fix (files) |
+|---|---|---|---|
+| P1 | High | An unrecognised medication mention ("nitrofuurentoin 100 mg") blocked Verify only when no recognised medicine existed. With one recognised medicine on the note, it could be verified without anyone deciding about the mention. | Each mention is now a RED slot (`unrec_N`), so the existing zero-RED verify gate blocks it. The clinician must choose a resolution in the form: *prescribed, added as a medicine row* (accepted only if a medicine row was actually added by hand) or *not a prescribed medicine*. The choice is audited (`unrecognised_meds[i].resolution`), changes the note fingerprint (so it invalidates an earlier verification), and is printed on the HTML/DOCX note. The editor offers one blank "add medicine" row when mentions exist. A red message states the number of unresolved mentions. (`demo/coords.py`, `demo/app.py`, `demo/fill_template.py`, template) |
+| P2 | Medium | Heart rate and other vitals without a box were shown but could not be corrected or added. | New audited form field "Other vitals" (`;`-separated). A clinician list replaces the extracted one on the note; the BP/temperature/SpO2 boxes are unaffected. (`demo/app.py`, `demo/coords.py`) |
+| P3 | High | **Found by the visual check:** "Patient denies chest pain *and vomiting*" printed *vomiting* under "Other symptoms" (as present). Only "chest pain" and "breathlessness" could ever be denied. The same error reached IPD symptom events. | Clause-scoped denial: a denial cue (`no`, `denies`, `without`, `negative for`, …) before the symptom in the same clause (clauses split at `, ; : but`). The previous rule for chest pain/breathlessness is kept. Checked on 9 phrasings, including "Cannot sleep due to cough" (still present) and "Fever for 3 days, no known allergies" (fever still present). (`demo/stt_extract.py`) |
+
+The safety rules still hold: nothing missing is filled in, AI suggestions stay labelled, and verification invalidation and the audit trail are unchanged.
+
+New tests: `demo/tests/test_clinical_resolution.py` (11 tests: 6 function-level P1/P2, 2 real Streamlit-editor flows, 3 for P3). Against the committed code `b795478`, 9 of the 11 fail. The 2 that pass are guards: no extra form rows without mentions, and denial not leaking to present symptoms.
+
+## Q. Discharge report visual check
+
+| Sample (synthetic) | Rendered with | Result |
+|---|---|---|
+| 6 recognised medicines + 1 unrecognised, long diagnosis/follow-up, BP multiple readings, allergy conflict, heart rate, missing ICD — draft | HTML → headless Chrome PDF → PNG | 2 A4 pages; "Page 1 of 2 / 2 of 2"; every medicine, warning box, notes and conflict visible; no clipping. Found P3 (fixed and re-rendered). |
+| Same note after resolution (medicine 7 added by hand, other vitals edited) — verified status | same | 7 medicines, "human-added" note on row 7, "RESOLVED: prescribed…" shown, edited heart rate shown. (The sample passes a verified status directly while an allergy conflict is still RED; the app's verify gate would refuse that. This is an artefact of how the sample was built, not an app path.) |
+| Minimal note ("Test cough.") | same | 1 page; every missing value stays NIL/RED or NOT DOCUMENTED; nothing invented. |
+| DOCX of the above | python-docx (structure, content) | Content complete. **Visual DOCX rendering still not done:** Word automation hung again (100 s timeout); only its `/Automation -Embedding` process was stopped. LibreOffice is not installed. |
+
+Seen but not changed: "three times a day" prints as "3 times a day"; extra timing words such as "before breakfast" are not captured in the frequency column (they remain in the verbatim source text on the note); "burning urine" is not in the symptom vocabulary (also only in the source text).
+
+## R. Browser smoke tests (real servers, real headless Chrome)
+
+No Playwright or Selenium is installed, and no packages were installed. Chrome 155 was driven over the DevTools protocol by a small Node 23 script (built-in WebSocket) kept in the session scratch folder, not in the repo. It used real mouse clicks, real typing, real file upload and real downloads.
+
+| App | Workflow | Result |
+|---|---|---|
+| IPD (`ipd_app.py`, **temporary database** via `MEDIBYTES_IPD_DB`) | A admit → B process typed round note → C timeline → D generate → E approve → F download HTML and DOCX | All steps worked with no exceptions. The timeline showed `pulse 88` and `vomiting denied`. The approved HTML shows "APPROVED" and the round content. A first run refused approval (empty S/A sections, because the driver hadn't submitted the round); that refusal was the safety gate working and showing its reasons. |
+| ER, Image/OCR path | Upload a synthetic printed prescription PNG → real EasyOCR (LLM off) → Discharge note → choose resolution for the unrecognised "Nitrofurantoin 100 mg" → add it as drug 3 → edit other vitals → fill the 2 genuinely missing values → Apply → Verify → download corrected HTML/DOCX | Verify was disabled with the "1 unrecognised medication mention(s) unresolved" message until resolved. After 10 audited corrections: RED 0 → Verify → "Verified — corrected exports unlocked". Downloads contain CLINICIAN-VERIFIED, "10 audited correction(s)", nitrofurantoin, the resolution and `pulse 84/min`. |
+| ER, Audio path | Upload a synthetic TTS MP3 from `demo scripts/` → real faster-whisper base (LLM off) → transcript → discharge note → one correction | Transcribed and extracted ("thromise" → azithromycin), note rendered, correction audited. Not verified in the browser (3 genuinely missing RED fields left); audio verify/export is covered by AppTest. The 5 job files this run wrote under `demo/{entities,exports,transcripts}` were removed afterwards. |
+
+Not done in the browser: ER verify/export on the audio path; IPD correction/retraction and regenerate; the LLM (Ollama) paths.
+
+## S. Final test results (Part 2)
+
+`python -m pytest demo/tests -q` → **493 passed, 40 subtests passed, 0 failed, 0 skipped**. That is 482 from Part 1 plus 11 new tests.
+
+The real IPD database was not touched (last modified 2026-10-15). Servers and headless browsers started for testing were stopped.
+
+## T. Remaining limitations (updated)
+
+- Visual DOCX check in Word still unavailable (automation hangs); DOCX is checked structurally only.
+- "Added" resolution checks only that a medicine row was added by hand, not that it matches the mention.
+- If no recognised medicine exists and the clinician dismisses the mention, the "NIL — no recognised medicine" row stays RED. Verify then needs a medicine row or a different workflow decision (not changed today).
+- Symptom denial is rule-based and clause-scoped. Unusual phrasing (e.g. "no relief from fever") can still be misclassified.
+- Drug vocabulary of about 30 names; STT/OCR accuracy unmeasured; LLM paths tested with fakes only.
+- Browser coverage is a smoke test of the main paths, not a full UI test suite.
+
+## U. Summary for the project lead (Part 2)
+
+- **Safer verification:** a note can no longer be verified while an unrecognised medication mention is undecided, even if other medicines were recognised. Each mention needs an explicit, audited clinician decision, which is printed on the note.
+- **Editable vitals:** heart rate and other box-less vitals are now editable and audited.
+- **Denied-symptom fix:** the visual check found that denied symptoms other than chest pain and breathlessness were printed as present. That is fixed for ER notes and IPD events.
+- **Browser runs:** the main IPD and ER (OCR) workflows were run end to end in a real browser against real servers, with synthetic data and a temporary IPD database.
+- **Tests:** 493 passing, 0 failing.
+- **Still open:** a visual DOCX check and measured accuracy. This remains a demonstration prototype.

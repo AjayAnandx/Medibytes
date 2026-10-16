@@ -101,8 +101,8 @@ AI-suggested values keep their label. Demo with synthetic data — not for clini
 <table><thead><tr><th>#</th><th style="width:28%">Medicine</th><th style="width:11%">Dose</th><th style="width:9%">Unit</th><th style="width:25%">Frequency</th><th>Duration</th></tr></thead>
 <tbody>{% for r in drug_rows %}<tr><td class="n">{{ r.index or "—" }}</td><td>{{ cell(r.cells.name) }}</td><td>{{ cell(r.cells.dose) }}</td><td>{{ cell(r.cells.unit) }}</td><td>{{ cell(r.cells.freq) }}</td><td>{{ cell(r.cells.duration) }}</td></tr>
 {% endfor %}</tbody></table>
-{% if unrecognised_meds %}<div class="unrec"><b>Possible medications not recognised</b> — a dose was stated but the medicine name was not recognised. Check the source and add manually if prescribed:
-<ul>{% for u in unrecognised_meds %}<li>“{{ u }}”</li>{% endfor %}</ul></div>{% endif %}</section>
+{% if unrecognised_items %}<div class="unrec"><b>Possible medications not recognised</b> — a dose was stated but the medicine name was not recognised. Each mention must be resolved by the clinician (added to the list above, or confirmed as not a prescribed medicine) before verification:
+<ul>{% for u in unrecognised_items %}<li>{{ cell(u) }}</li>{% endfor %}</ul></div>{% endif %}</section>
 
 <section><h2>Vital signs</h2>
 <div class="grid">

@@ -213,7 +213,8 @@ def _fill_premium(spec, entities_json, transcript_json, template_id, doc_status=
            "drug_rows": r["drug_rows"], "n_drugs": sum(1 for x in r["drug_rows"] if x["index"]),
            "review_notes": r["review_notes"], "denied_allergies": r["denied_allergies"],
            "denied_symptoms": r["denied_symptoms"], "symptoms_other": r["symptoms_other"],
-           "unrecognised_meds": r["unrecognised_meds"], "other_vitals": r["other_vitals"],
+           "unrecognised_meds": r["unrecognised_meds"], "unrecognised_items": r["unrecognised_items"],
+           "other_vitals": r["other_vitals"],
            "source_text": src, "source_label": "image OCR" if tj.get("source") == "image" else "audio transcript",
            "doc_status": status, "review": _review_counts(r["slots"])}
     html = tpl.render(**ctx)
@@ -346,14 +347,14 @@ def _docx_word_editable(ctx):
     table(["#", "Medicine", "Dose", "Unit", "Frequency", "Duration"],
           [[r["index"] or "—", r["cells"].get("name"), r["cells"].get("dose"), r["cells"].get("unit"),
             r["cells"].get("freq"), r["cells"].get("duration")] for r in ctx["drug_rows"]])
-    if ctx["unrecognised_meds"]:
+    if ctx["unrecognised_items"]:
         w = doc.add_paragraph()
         wr = w.add_run("Possible medications not recognised — a dose was stated but the medicine name was not "
-                       "recognised. Check the source and add manually if prescribed:")
+                       "recognised. Each mention must be resolved by the clinician (added to the list above, or "
+                       "confirmed as not a prescribed medicine) before verification:")
         wr.font.bold, wr.font.color.rgb = True, red
-        for u in ctx["unrecognised_meds"]:
-            ur = doc.add_paragraph(style="List Bullet").add_run(f"“{u}”")
-            ur.font.color.rgb = red
+        for u in ctx["unrecognised_items"]:
+            add_val(doc.add_paragraph(style="List Bullet"), u)
 
     doc.add_heading("Vital signs", 2)
     table(["Vital sign", "Value"], [["BP systolic (mmHg)", S.get("vitals_bp_sys")],

@@ -316,6 +316,20 @@ def _negated(sentence):
     return bool(NEG_PAT.search(sentence))
 
 
+# a denial cue before the symptom in the same clause ("denies chest pain and vomiting",
+# "fever, no vomiting"); clauses end at , ; but - so "fever, no vomiting" keeps fever
+SYMPTOM_DENIAL = re.compile(r"\b(no|denies|denied|denying|without|nor|neither|negative for)\b", re.I)
+SYMPTOM_CLAUSE_SPLIT = re.compile(r"[,;:]|\bbut\b", re.I)
+
+
+def _symptom_denied(sentence, symptom):
+    for clause in SYMPTOM_CLAUSE_SPLIT.split(sentence):
+        i = clause.lower().find(symptom)
+        if i >= 0 and SYMPTOM_DENIAL.search(clause[:i]):
+            return True
+    return False
+
+
 def extract_entities(text, normalized_en, segments, source="audio"):
     """Stage 4 regex core. Returns demo entities_json.
 
@@ -417,7 +431,7 @@ def extract_entities(text, normalized_en, segments, source="audio"):
                 if any(s in m and s != m for m in matched):
                     continue
                 matched.add(s)
-                is_neg = neg and s in DENIED_SYMPTOMS
+                is_neg = (neg and s in DENIED_SYMPTOMS) or _symptom_denied(sent, s)
                 symptoms.append({"text": s, "confidence": 0.9 if not is_neg else 0.91,
                                  "color": "GREEN" if is_neg else "YELLOW",
                                  "source_sentence": proof_sent,

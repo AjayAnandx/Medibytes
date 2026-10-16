@@ -134,26 +134,42 @@ _EDITABLE_SLOTS = (
     "cc_blank",
     "drug_0_name", "drug_0_dose", "drug_0_unit", "drug_0_freq", "drug_0_duration",
     "drug_1_name", "drug_1_dose", "drug_1_unit", "drug_1_freq", "drug_1_duration",
-    "vitals_bp_sys", "vitals_bp_dia", "vitals_temp", "vitals_spo2",
+    "vitals_bp_sys", "vitals_bp_dia", "vitals_temp", "vitals_spo2", "vitals_other",
     "allergy_line", "dx_text", "dx_code_box", "fu_text", "sign_line",
 )
 _DRUG_KEY = re.compile(r"^drug_(\d+)_(name|dose|unit|freq|duration)$")
+_UNREC_KEY = re.compile(r"^unrec_(\d+)$")
+_DRUG_COLS = ("name", "dose", "unit", "freq", "duration")
+# editor choices for an unrecognised medication mention -> stored edit value
+_UNREC_CHOICES = {"Unresolved — clinician must decide": None,
+                  "Prescribed — I added it as a medicine row above": "RESOLVED: added",
+                  "Not a prescribed medicine — dismiss": "RESOLVED: dismissed"}
 
 
 def _editable_keys(defaults):
-    """Form fields in order; medicine rows beyond the first two are included (none hidden)."""
+    """Form fields in order; medicine rows beyond the first two are included (none hidden).
+
+    With unrecognised medication mentions, one blank medicine row is offered so a
+    mention can be added, followed by one resolution choice per mention."""
     keys = [k for k in _EDITABLE_SLOTS if k in defaults]
-    extra = sorted((k for k in defaults if _DRUG_KEY.match(k) and k not in _EDITABLE_SLOTS),
-                   key=lambda k: (int(_DRUG_KEY.match(k).group(1)),
-                                  ("name", "dose", "unit", "freq", "duration").index(_DRUG_KEY.match(k).group(2))))
+    drug_keys = [k for k in defaults if _DRUG_KEY.match(k)]
+    unrec = sorted((k for k in defaults if _UNREC_KEY.match(k)), key=lambda k: int(_UNREC_KEY.match(k).group(1)))
+    if unrec and not str(defaults.get("drug_0_name", "")).startswith("NIL — no"):
+        n = max(int(_DRUG_KEY.match(k).group(1)) for k in drug_keys) + 1 if drug_keys else 0
+        drug_keys += [f"drug_{n}_{c}" for c in _DRUG_COLS]  # blank "add medicine" row
+    extra = sorted((k for k in drug_keys if k not in keys),
+                   key=lambda k: (int(_DRUG_KEY.match(k).group(1)), _DRUG_COLS.index(_DRUG_KEY.match(k).group(2))))
     at = keys.index("drug_1_duration") + 1 if "drug_1_duration" in keys else len(keys)
-    return keys[:at] + extra + keys[at:]
+    return keys[:at] + extra + unrec + keys[at:]
 
 
 def _label(sk):
     m = _DRUG_KEY.match(sk)
     if m and sk not in _SLOT_LABELS:
         return f"Drug {int(m.group(1)) + 1} " + {"freq": "frequency"}.get(m.group(2), m.group(2))
+    m = _UNREC_KEY.match(sk)
+    if m:
+        return f"Unrecognised medication {int(m.group(1)) + 1} — resolution (required before Verify)"
     return _SLOT_LABELS.get(sk, sk)
 
 
@@ -166,6 +182,7 @@ _SLOT_LABELS = {
     "drug_1_freq": "Drug 2 frequency", "drug_1_duration": "Drug 2 duration",
     "vitals_bp_sys": "BP systolic", "vitals_bp_dia": "BP diastolic",
     "vitals_temp": "Temperature", "vitals_spo2": "SpO2",
+    "vitals_other": "Other vitals, e.g. heart rate 88/min (;-separated; BP/temp/SpO2 have their own boxes)",
     "allergy_line": "Allergies (active, ;-separated)",
     "dx_text": "Diagnosis", "dx_code_box": "ICD-10 code",
     "fu_text": "Follow-up", "sign_line": "Signature",
@@ -177,7 +194,9 @@ def _slot_defaults(ej, tj):
     try:
         from coords import resolve_slots
         r = resolve_slots(ej, tj, "er_discharge")
-        return {s["key"]: str(s.get("text", "")) for s in r["slots"]}, r
+        d = {s["key"]: str(s.get("text", "")) for s in r["slots"]}
+        d["vitals_other"] = "; ".join(r.get("other_vitals") or [])  # listed on the note, no box
+        return d, r
     except Exception as e:
         st.warning(f"slot resolve failed: {e}")
         return {}, {"slots": [], "denied": [], "proof_lines": []}
@@ -299,6 +318,21 @@ def _apply_edits(orig_ej, edits, defaults=None):
             sv[field] = new
             if field in (patched.get("structured_vitals_ai") or []):
                 patched["structured_vitals_ai"] = [f for f in patched["structured_vitals_ai"] if f != field]
+    # other vitals without a box (heart rate, RR...) -> clinician list replaces the extracted one
+    if "vitals_other" in edits:
+        new = [p.strip() for p in edits["vitals_other"].split(";") if p.strip()]
+        _record("vitals_other", "other_vitals_human", (defaults or {}).get("vitals_other", ""), "; ".join(new))
+        patched["other_vitals_human"] = new
+
+    # unrecognised medication mentions -> explicit clinician resolution (coords keeps
+    # an unresolved one RED; "added" needs a hand-added medicine row)
+    for k in [k for k in edits if _UNREC_KEY.match(k)]:
+        i = int(_UNREC_KEY.match(k).group(1))
+        res = {"RESOLVED: added": "added", "RESOLVED: dismissed": "dismissed"}.get(str(edits[k]).strip())
+        um = patched.get("unrecognised_meds") or []
+        if res and i < len(um) and isinstance(um[i], dict):
+            _record(k, f"unrecognised_meds[{i}].resolution", um[i].get("resolution", "unresolved"), res)
+            um[i]["resolution"] = res
 
     # allergies active line -> ;-separated replace (negated DENIED stay locked).
     # The clinician's entry is authoritative (allergy_status): "No known
@@ -469,7 +503,7 @@ def _reset_note_state(job_id):
         st.session_state.pop(k, None)
     for sk in _EDITABLE_SLOTS:
         st.session_state.pop(f"{job_id}_{sk}", None)
-    for k in [k for k in st.session_state.keys() if str(k).startswith(f"{job_id}_drug_")]:
+    for k in [k for k in st.session_state.keys() if str(k).startswith((f"{job_id}_drug_", f"{job_id}_unrec_"))]:
         st.session_state.pop(k, None)
 
 
@@ -589,7 +623,13 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                     form_vals = {}
                     for sk in _editable_keys(ai_defaults):
                         cur = saved_edits.get(sk, ai_defaults.get(sk, ""))
-                        if sk in ("cc_blank", "allergy_line", "dx_text", "fu_text"):
+                        if _UNREC_KEY.match(sk):  # explicit, audited decision per mention
+                            st.markdown(f"**Not recognised:** “{ai_defaults.get(sk, '')}”")
+                            opts = list(_UNREC_CHOICES)
+                            idx = next((i for i, o in enumerate(opts) if _UNREC_CHOICES[o] == cur), 0)
+                            pick = st.selectbox(_label(sk), opts, index=idx, key=f"{job_id}_{sk}")
+                            form_vals[sk] = _UNREC_CHOICES[pick] or ai_defaults.get(sk, "")
+                        elif sk in ("cc_blank", "allergy_line", "dx_text", "fu_text", "vitals_other"):
                             form_vals[sk] = st.text_area(_label(sk), value=cur, key=f"{job_id}_{sk}")
                         else:
                             form_vals[sk] = st.text_input(_label(sk), value=cur, key=f"{job_id}_{sk}")
@@ -675,6 +715,10 @@ def _show_result(job_id, tj, ej, meta, raw_path=None, clean_path=None, prebuilt_
                     st.rerun()
                 if not can_verify and not st.session_state[ver_key]:
                     st.caption("Verify requires ≥1 audited correction and zero RED fields (403-gate).")
+                    n_unres = sum(1 for s in reds if _UNREC_KEY.match(s["key"]))
+                    if n_unres:
+                        st.error(f"{n_unres} unrecognised medication mention(s) unresolved — choose a "
+                                 "resolution for each in the form before Verify.")
 
             with col_prev:
                 try:
